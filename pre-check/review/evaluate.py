@@ -80,19 +80,7 @@ def valid_result(result, schema):
 
 
 def human_reasons(scope, findings, coverage):
-    reasons = []
-    if scope["file_count"] > 0 and not scope["reviewed"]:
-        reasons.append("no file of it could be reviewed")
-    if scope["truncated"]:
-        reasons.append("the pull request is too large for a full pre-check")
-    if scope["unreviewable"]:
-        reasons.append("some changes have no reviewable diff")
-    if scope["workflow_changes"]:
-        reasons.append("it changes CI workflows")
-    if any(not p["path"].startswith((".github/workflows/", ".github/actions/")) for p in scope["human_paths"]):
-        reasons.append("it changes code owners, dependencies or build configuration")
-    if scope["cut_sources"]:
-        reasons.append("some context was cut at its size limit or could not be read")
+    reasons = contracts.scope_reasons(scope, "human")
     if scope["reviewed"] and coverage != "full":
         reasons.append("the reviewer did not read the whole diff")
     if len(findings) > MAX_FINDINGS:
@@ -102,18 +90,19 @@ def human_reasons(scope, findings, coverage):
 
 def evaluate(result, scope, coverage, result_schema, scope_schema):
     if not contracts.validate(scope, scope_schema):
-        return {"outcome": "invalid", "reasons": ["the collected scope does not match its schema"],
+        return {"outcome": "invalid", "reasons": ["the collected scope does not match its schema"], "notes": [],
                 "blocking": 0, "advisory": 0, "total": 0, "withheld": False}
     if result == {"withheld": True}:  # package.py found credential-like text in the analyse job
         return {"outcome": "human", "reasons": ["the reviewer's output contains text that looks like a credential"],
-                "blocking": 0, "advisory": 0, "total": 0, "withheld": True}
+                "notes": [], "blocking": 0, "advisory": 0, "total": 0, "withheld": True}
     if not valid_result(result, result_schema):
-        return {"outcome": "invalid", "reasons": ["the reviewer returned no valid result"],
+        return {"outcome": "invalid", "reasons": ["the reviewer returned no valid result"], "notes": [],
                 "blocking": 0, "advisory": 0, "total": 0, "withheld": False}
     findings = result["findings"]
     blocking = sum(1 for f in findings if f["severity"] == "blocking")
     advisory = len(findings) - blocking
     reasons = human_reasons(scope, findings, coverage)
+    notes = contracts.scope_reasons(scope, "advisory")
     withheld = any(leaks(redact(t)) for t in model_texts(result))
     if withheld:
         reasons.append("the reviewer's output contains text that looks like a credential")
@@ -121,13 +110,13 @@ def evaluate(result, scope, coverage, result_schema, scope_schema):
         outcome = "changes"
     elif reasons:
         outcome = "human"
-    elif advisory:
+    elif advisory or notes:
         outcome = "advisory"
     else:
         outcome = "clean"
     if withheld:
         outcome = "human"
-    return {"outcome": outcome, "reasons": reasons, "blocking": blocking, "advisory": advisory,
+    return {"outcome": outcome, "reasons": reasons, "notes": notes, "blocking": blocking, "advisory": advisory,
             "total": len(findings), "withheld": withheld}
 
 

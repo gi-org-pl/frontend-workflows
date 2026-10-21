@@ -43,8 +43,8 @@ There is one set of outcome states, defined once in
 
 | State | When | Label | `frontend-pre-check / review` |
 | --- | --- | --- | --- |
-| `clean` | no findings, and the whole pull request was deterministically covered | `pre-check: clean` | success (exit 0) |
-| `advisory` | only non-blocking findings, and the whole pull request was covered | `pre-check: advisory` | success (exit 0) |
+| `clean` | no findings, the whole pull request was deterministically covered, and all linked context was read | `pre-check: clean` | success (exit 0) |
+| `advisory` | only non-blocking findings, or none while some linked context was not read in full (below); the change itself was fully covered | `pre-check: advisory` | success (exit 0) |
 | `queued` | a `merge_group` entry whose pull requests passed this check on their current heads | none | success (exit 0) |
 | `changes` | at least one blocking finding, anywhere in the reviewer's list | `pre-check: changes` | failure (exit 1) |
 | `human` | a rule says a person must judge it (list below), or the reviewer's output looked like it contained a credential and was withheld | `pre-check: human review` | failure (exit 1) |
@@ -61,12 +61,19 @@ A pull request **needs a person** when any of these holds - each is decided by a
   configuration, plugins or hooks, git hooks, build configuration (`*.config.*`, `tsconfig*.json`, `biome.json`,
   `.storybook/`, `scripts/`), container or deployment descriptors or release configuration - in a monorepo also below
   the root, except `scripts/`, which counts at the root only,
-- a source of context was cut at its size limit, or could not be read: a linked issue or document (an API failure, or
-  a private repository the caller's `github.token` cannot see - it reads only the caller's repository and public
-  ones), or an `AGENTS.md` or `CLAUDE.md` that applies to a changed file (also when its path is outside the plain
-  character set),
+- context of the change itself was cut at its size limit or could not be read: the description, a linked issue that
+  was read or its comments (an API failure, or a private repository the caller's `github.token` cannot see - it reads
+  only the caller's repository and public ones), or an `AGENTS.md` or `CLAUDE.md` that applies to a changed file (also
+  when its path is outside the plain character set),
 - the reviewer did not read every line of the diff (measured from its own log),
 - the reviewer returned more findings than allowed.
+
+**Linked context that was not read in full does not need a person by itself.** Issues beyond the cap of 10, and a
+linked document that cannot be read (missing, not on the default branch yet, at a path the pre-check does not fetch,
+in a repository the token cannot see, beyond the cap of 20) or that was cut at its size limit (the comment says how
+much was read), are listed under "What was not checked". The pull request then passes as `advisory` at best, never as
+`clean`. Both levels are rules in `SCOPE_RULES` of [`contracts.py`](../../pre-check/contracts.py), applied by
+`review/evaluate.py`.
 
 The labels keep the short `pre-check:` prefix; they are the one exception to "we do not use GitHub labels for pull
 requests" in [code review][code-review].
@@ -89,12 +96,13 @@ The reviewer is isolated from the agent that wrote the code and from GitHub. It 
   description; tests and test helpers are left out of the diff by an immutable policy and listed with their size,
 - the linked issues **of this organisation** opened by its members, with its members' comments (owners, members,
   collaborators); the title and body of an issue opened by anyone else, and comments by anyone else, are left out; at
-  most 5 issues - a pull request that links more needs a person,
+  most 10 issues, the ones the pull request closes first (GitHub's closing references, then "closes", "fixes" or
+  "resolves" in the description), then the other mentions in order - the rest are listed as not read,
 - the Figma links found there - recorded, but **not opened**: the reviewer sees neither Figma nor images (see
   [Design comparison](#design-comparison)),
 - documents in `gi-org-pl/product` that the issues link, **only from its default branch**, pinned to the commit it
   pointed at during the run, at most 20 (a link to another branch or a tag, at a path outside the plain character
-  set, or beyond the 20 is not given to the reviewer, and the pull request needs a person),
+  set, or beyond the 20 is not given to the reviewer and is listed as not read),
 - the organisation's standards, [gi-tech-standards](https://github.com/gi-org-pl/gi-tech-standards), at the commit
   pinned by the `standards_ref` input (a constant in the workflow, bumped with a release of this repository),
 - the repository's own guide - `AGENTS.md` and `CLAUDE.md` files at any depth, `README.md`, `docs/` and the pull
@@ -410,7 +418,7 @@ that hand each other validated data:
   frontend-pre-check.yml        the reusable workflow: three jobs, nothing else
   ci.yml                        actionlint, shellcheck, markdownlint and the tests, on every pull request
 pre-check/
-  contracts.py                  the outcome states, labels and exit codes; a small JSON-schema validator
+  contracts.py                  the outcome states, labels and exit codes, the scope rules; a JSON-schema validator
   gate.py                       input checks and the decision run / queue / skip / block
   report.sh                     publishing: GitHub I/O only, every decision comes from the components below
   context/

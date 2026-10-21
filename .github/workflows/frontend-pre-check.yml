@@ -67,7 +67,7 @@ on:
           pnpm-lock.yaml
           */pnpm-lock.yaml
       doc_repos:
-        description: "Newline-separated repositories of the same organisation whose documents linked from the issue are given to the reviewer; the caller's token must be able to read them (a link the collector cannot read makes the pull request need a person)"
+        description: "Newline-separated repositories of the same organisation whose documents linked from the issue are given to the reviewer; the caller's token must be able to read them (a document the collector cannot read is listed as not read, and the result is advisory at best)"
         type: string
         default: "gi-org-pl/product"
       timeout_minutes:

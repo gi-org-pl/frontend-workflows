@@ -3,6 +3,9 @@
 
 - OUTCOMES: the one set of outcome states, with whether the required check
   passes and which label is set. Every component takes them from here.
+- SCOPE_RULES: what the collected scope alone decides about the outcome -
+  "human" when the change under review was not fully seen, "advisory" when
+  only linked context (issues beyond the cap, linked documents) was not.
 - validate(): a small JSON-schema validator for the subset the pre-check's
   schemas use (type, properties, required, additionalProperties, enum, items,
   minItems, maxItems, maxLength, minimum, maximum), so that the collected
@@ -31,6 +34,28 @@ OUTCOMES = {
     "invalid": (False, ""),                       # no valid result: the run failed, the output was malformed, or the input was refused
     "skipped": (False, ""),                       # not pre-checked: fork, draft, bot, no write access, no secret, run limit
 }
+
+# (the outcome a rule forces at least, the reason shown, the test on the scope)
+# "human": the change itself, or context it depends on, was not fully seen -
+# a person has to judge. "advisory": linked context the reviewer did not get
+# in full; the check still passes, but never as "clean".
+SCOPE_RULES = (
+    ("human", "no file of it could be reviewed", lambda s: s["file_count"] > 0 and not s["reviewed"]),
+    ("human", "the pull request is too large for a full pre-check", lambda s: s["truncated"]),
+    ("human", "some changes have no reviewable diff", lambda s: bool(s["unreviewable"])),
+    ("human", "it changes CI workflows", lambda s: bool(s["workflow_changes"])),
+    ("human", "it changes code owners, dependencies or build configuration",
+     lambda s: any(not p["path"].startswith((".github/workflows/", ".github/actions/")) for p in s["human_paths"])),
+    ("human", "some context of the change was cut at its size limit or could not be read",
+     lambda s: bool(s["cut_sources"])),
+    ("advisory", "some linked context was not read in full", lambda s: bool(s["unread_context"])),
+)
+
+
+def scope_reasons(scope, level):
+    """The reasons of the SCOPE_RULES of LEVEL ("human" or "advisory") that hold."""
+    return [reason for rule_level, reason, holds in SCOPE_RULES if rule_level == level and holds(scope)]
+
 
 LABEL_COLOURS = {
     "pre-check: clean": ("0e8a16", "AI pre-check reported no findings; not an approval"),

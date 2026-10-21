@@ -33,7 +33,7 @@ def scope(**extra):
             "file_count": 1, "unlisted": 0, "truncated": False, "reviewed": ["src/a.ts"], "not_reviewed": [],
             "excluded": [], "excluded_lines": 0, "safe_assets": [], "unreviewable": [], "human_paths": [],
             "workflow_changes": [], "renamed": [], "hunks": {"src/a.ts": [{"LEFT": [1, 5], "RIGHT": [1, 9]}]},
-            "issues": [], "figma": [], "docs": [], "repo_docs": [], "cut_sources": [], "notes": []}
+            "issues": [], "figma": [], "docs": [], "repo_docs": [], "cut_sources": [], "unread_context": [], "notes": []}
     data.update(extra)
     return data
 
@@ -98,6 +98,24 @@ class VerdictTest(unittest.TestCase):
         ]
         for extra in cases:
             self.assertEqual(outcome(result(), scope(**extra))["outcome"], "human", extra)
+
+    def test_unread_linked_context_passes_but_is_not_clean(self):
+        sc = scope(unread_context=["linked issues beyond the first 10, not read: gi-org-pl/app#11"])
+        evaluation = outcome(result(), sc)
+        self.assertEqual((evaluation["outcome"], evaluation["reasons"]), ("advisory", []))
+        self.assertEqual(evaluation["notes"], ["some linked context was not read in full"])
+        self.assertTrue(contracts.OUTCOMES[evaluation["outcome"]][0])
+        missing_doc = scope(unread_context=["the linked document gi-org-pl/product/a.md (it could not be read)"])
+        self.assertEqual(outcome(result([finding()]), missing_doc)["outcome"], "advisory")
+        self.assertEqual(outcome(result([finding("blocking")]), missing_doc)["outcome"], "changes")
+
+    def test_unread_context_does_not_relax_a_cut_of_the_change(self):
+        sc = scope(unread_context=["linked issues beyond the first 10, not read: x"], truncated=True, not_reviewed=["src/b.ts"])
+        self.assertEqual(outcome(result(), sc)["outcome"], "human")
+        self.assertEqual(outcome(result(), scope(cut_sources=["pull request description"]))["outcome"], "human")
+
+    def test_every_scope_rule_is_human_or_advisory(self):
+        self.assertTrue(all(level in ("human", "advisory") for level, _, _ in contracts.SCOPE_RULES))
 
     def test_excluded_only_pull_request_needs_a_person(self):
         sc = scope(reviewed=[], file_count=2, excluded=["src/a.test.ts", "src/b.test.ts"], excluded_lines=40, hunks={})

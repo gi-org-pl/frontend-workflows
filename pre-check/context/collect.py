@@ -133,7 +133,7 @@ def collect(gh, env):
         "head": head, "base": base, "fingerprint": contracts.fingerprint(pr), "standards": standards, "max_diff_lines": int(env.get("MAX_DIFF_LINES", "3000")),
         "unlisted": unlisted, "truncated": bool(classification["not_reviewed"]) or unlisted > 0,
         "issues": issues, "figma": figma, "docs": docs, "repo_docs": guide,
-        "cut_sources": ctx.cut_sources, "notes": ctx.notes,
+        "cut_sources": ctx.cut_sources, "unread_context": ctx.unread, "notes": ctx.notes,
     })
     schema = contracts.load(os.path.join(HERE, "scope.schema.json"))
     problems = contracts.errors(scope, schema)
@@ -181,6 +181,7 @@ def write_index(ctx_dir, repo, number, s, nonce):
     parts += ["", "## Linked issues", fenced(s["issues"]), "", "## Figma links", fenced(s["figma"]),
               "", "## Linked documents", fenced(s["docs"]), "", "## Repository guide (base branch)", fenced(s["repo_docs"])]
     notes = s["notes"] + ["Cut at its size limit or not available: {}.".format(c) for c in s["cut_sources"]]
+    notes += ["Linked context not read in full: {}.".format(u) for u in s["unread_context"]]
     if notes:
         parts += ["", "## Notes"] + ["- " + n for n in notes]
     with open(os.path.join(ctx_dir, "INDEX.md"), "w", encoding="utf-8") as fh:
