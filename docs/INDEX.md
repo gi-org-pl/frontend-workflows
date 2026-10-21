@@ -5,7 +5,7 @@ workflow file in `.github/workflows/` (GitHub allows no subfolders there) and it
 
 | Workflow | What it does | Docs |
 | --- | --- | --- |
-| *(none yet)* | | |
+| [`frontend-pre-check.yml`](../.github/workflows/frontend-pre-check.yml) | The AI pre-check of a front-end pull request: an isolated reviewer, a deterministic coverage policy, one Pre-check comment and the check `frontend-pre-check / review` | [Process](pre-check/PROCESS.md), [reviewer instructions](pre-check/REVIEWER.md) |
 
 ## Calling a workflow
 
