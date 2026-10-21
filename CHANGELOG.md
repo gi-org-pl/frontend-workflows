@@ -2,7 +2,7 @@
 
 All notable changes to the workflows of this repository. Versions follow [the versioning policy](docs/INDEX.md#versioning).
 
-## Unreleased
+## 1.1.0 - 2026-10-22
 
 Minor: context limits that do not force a person. Callers change nothing; the outcome of some pull requests moves
 from `human` to `advisory`.
