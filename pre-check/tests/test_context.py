@@ -195,12 +195,22 @@ class DocumentsTest(unittest.TestCase):
         self.assertIn("comments of issue gi-org-pl/app#1", ctx.cut_sources)
         self.assertTrue(any("outside the organisation" in n for n in ctx.notes))
 
-    def test_issue_api_failure_is_a_note(self):
+    def test_an_unreadable_issue_needs_a_person(self):
         ctx = documents.Context("n")
         with tempfile.TemporaryDirectory() as out:
             issues, _ = documents.collect_issues(FakeGitHub({}), ctx, ["gi-org-pl/app#9"], "gi-org-pl", out)
         self.assertEqual(issues, [])
-        self.assertTrue(any("Could not read" in n for n in ctx.notes))
+        self.assertEqual(ctx.cut_sources, ["the linked issue gi-org-pl/app#9 (it could not be read)"])
+
+    def test_an_unreadable_document_needs_a_person(self):
+        # A private repository the caller's token cannot see answers like a failed read.
+        text = "https://github.com/gi-org-pl/private-docs/blob/main/docs/spec.md"
+        gh = FakeGitHub({"repos/gi-org-pl/private-docs": GitHubError("404")})
+        ctx = documents.Context("n")
+        with tempfile.TemporaryDirectory() as out:
+            docs = documents.collect_documents(gh, ctx, text, ["gi-org-pl/private-docs"], "gi-org-pl", out)
+        self.assertEqual(docs, [])
+        self.assertEqual(ctx.cut_sources, ["a linked document of gi-org-pl/private-docs (the repository could not be read)"])
 
     def test_documents_only_from_the_default_branch(self):
         gh = FakeGitHub({

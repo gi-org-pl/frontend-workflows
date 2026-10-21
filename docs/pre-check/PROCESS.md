@@ -61,8 +61,10 @@ A pull request **needs a person** when any of these holds - each is decided by a
   configuration, plugins or hooks, git hooks, build configuration (`*.config.*`, `tsconfig*.json`, `biome.json`,
   `.storybook/`, `scripts/`), container or deployment descriptors or release configuration - in a monorepo also below
   the root, except `scripts/`, which counts at the root only,
-- a source of context was cut at its size limit, or an `AGENTS.md` or `CLAUDE.md` that applies to a changed file could
-  not be given to the reviewer (a path outside the plain character set, or a failed read),
+- a source of context was cut at its size limit, or could not be read: a linked issue or document (an API failure, or
+  a private repository the caller's `github.token` cannot see - it reads only the caller's repository and public
+  ones), or an `AGENTS.md` or `CLAUDE.md` that applies to a changed file (also when its path is outside the plain
+  character set),
 - the reviewer did not read every line of the diff (measured from its own log),
 - the reviewer returned more findings than allowed.
 

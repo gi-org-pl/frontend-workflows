@@ -93,10 +93,13 @@ def collect_issues(gh, ctx, refs, owner, out_dir):
             not_read.append(ref)
             continue
         repo, number = ref.split("#")
+        # A linked source that cannot be read (an API failure, or a private
+        # repository the caller's token cannot see) goes to cut_sources: the
+        # reviewer would judge without it, so the result needs a person.
         try:
             issue = gh.api("repos/{}/issues/{}".format(repo, number))
         except GitHubError:
-            ctx.notes.append("Could not read the linked issue {}.".format(ref))
+            ctx.cut_sources.append("the linked issue {} (it could not be read)".format(ref))
             continue
         if "pull_request" in issue:
             continue
@@ -104,7 +107,7 @@ def collect_issues(gh, ctx, refs, owner, out_dir):
             comments = gh.api("repos/{}/issues/{}/comments?per_page=100".format(repo, number), paginate=True)
         except GitHubError:
             comments = []
-            ctx.notes.append("Could not read the comments of {}.".format(ref))
+            ctx.cut_sources.append("the comments of issue {} (they could not be read)".format(ref))
         trusted = [c for c in comments if c.get("author_association") in TRUSTED]
         outside += len(comments) - len(trusted)
         if issue.get("author_association") in TRUSTED:
@@ -170,7 +173,7 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
         try:
             data = gh.raw("repos/{}/contents/{}?ref={}".format(repo, path, sha))
         except GitHubError:
-            ctx.notes.append("Could not read the linked document {}/{}.".format(repo, path))
+            ctx.cut_sources.append("the linked document {}/{} (it could not be read)".format(repo, path))
             return
         os.makedirs(os.path.dirname(target), exist_ok=True)
         label = "document {}/{} at {}".format(repo, path, sha[:7])
@@ -193,7 +196,8 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
             try:
                 sha = resolve_ref(gh, repo, ref, cache) if safe_relpath(ref) and safe_relpath(path) else None
             except GitHubError:
-                sha = None
+                ctx.cut_sources.append("a linked document of {} (the repository could not be read)".format(repo))
+                continue
             if not sha:
                 ctx.notes.append("A linked document outside the default branch, or with an unsafe path, was skipped.")
                 continue
@@ -203,6 +207,7 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
             try:
                 entries = gh.api("repos/{}/contents/{}?ref={}".format(repo, path, sha))
             except GitHubError:
+                ctx.cut_sources.append("the linked folder {}/{} (it could not be read)".format(repo, path))
                 entries = []
             for entry in entries if isinstance(entries, list) else []:
                 if entry.get("type") == "file" and re.search(r"\.(md|mdx|txt)$", entry.get("name", "")):
