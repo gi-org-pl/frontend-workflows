@@ -13,7 +13,7 @@ cat > "$T/bin/gh" << 'EOF'
 echo "gh $*" >> "$FAKE_LOG"
 args="$*"
 case "$args" in
-  *'pulls/1 --jq "\(.head.sha) \(.base.sha)"'*) echo "$FAKE_HEAD $FAKE_BASE" ;;
+  *'pulls/1 --jq "\(.head.sha) \(.base.sha) \(.draft)"'*) echo "$FAKE_HEAD $FAKE_BASE ${FAKE_DRAFT:-false}" ;;
   *"pulls/"*" --jq .head.sha"*) echo "$FAKE_HEAD" ;;
   *"check-runs/"*" --jq .name"*) echo "frontend-pre-check / review" ;;
   *"commits/"*"/check-runs"*) echo "$FAKE_CHECK" ;;
@@ -89,6 +89,11 @@ if grep -q "issues/1/comments -F" "$FAKE_LOG"; then echo "FAIL moved head posted
 mk_result '[]'
 check "a moved base fails and does not publish the result" 1 env FAKE_BASE=dddddddddddddddddddddddddddddddddddddddd bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
 posted_has "base branch moved" || { echo "FAIL base moved comment"; failures=$((failures + 1)); }
+
+check "a pull request turned draft meanwhile gets nothing published" 1 env FAKE_DRAFT=true bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
+if grep -q "issues/1/comments -F" "$FAKE_LOG"; then echo "FAIL draft run posted"; failures=$((failures + 1)); fi
+check "a draft skip still withdraws and comments" 1 env FAKE_DRAFT=true SKIP_REASON="the pull request is a draft." bash "$HERE/report.sh" notchecked
+posted_has "not pre-checked" || { echo "FAIL draft skip comment"; failures=$((failures + 1)); }
 
 check "an incomplete reading fails" 1 bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
 

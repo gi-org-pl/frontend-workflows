@@ -62,16 +62,21 @@ comment_id() {
 # If the pull request cannot be read, nothing more is published and the run
 # fails.
 guard() {
-  local current base
-  if ! current=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '"\(.head.sha) \(.base.sha)"'); then
+  local state current base draft
+  if ! state=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '"\(.head.sha) \(.base.sha) \(.draft)"'); then
     echo "::error title=Pre-check::Could not read the pull request; nothing more is published."
     exit 1
   fi
-  base=${current#* }
-  current=${current% *}
+  read -r current base draft <<< "$state"
   if [ "$current" != "$HEAD_SHA" ]; then
     echo "The pull request moved on from ${HEAD_SHA:0:7} to ${current:0:7}; nothing more is published by this run."
     exit 0
+  fi
+  # A review must not publish into a pull request that went back to draft
+  # meanwhile: the draft run withdrew the result, and this one does not pass.
+  if [ "${PUBLISHING_RESULT:-}" = true ] && [ "$draft" = true ]; then
+    echo "The pull request is a draft now; this result is not published."
+    exit 1
   fi
   [ -z "${BASE_SHA:-}" ] || [ "$base" = "$BASE_SHA" ]
 }
@@ -193,6 +198,7 @@ esac
 
 : "${PR_NUMBER:?}" "${HEAD_SHA:?}" "${RESULT_FILE:?}" "${SCOPE_FILE:?}"
 BASE_SHA=${BASE_SHA:-$(jq -r '.base // ""' "$SCOPE_FILE" 2> /dev/null || echo "")}
+PUBLISHING_RESULT=true
 out=$(mktemp -d)
 python3 "$HERE/review/evaluate.py" "$RESULT_FILE" "$SCOPE_FILE" "$out/evaluation.json"
 outcome=$(jq -r .outcome "$out/evaluation.json")
