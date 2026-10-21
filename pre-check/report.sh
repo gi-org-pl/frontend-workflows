@@ -220,8 +220,11 @@ queue)
   encoded=$(jq -rn --arg name "$name" '$name | @uri')
   for pr in "${prs[@]}"; do
     head=$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha)
-    passed=$(gh api "repos/$REPO/commits/$head/check-runs?check_name=$encoded&filter=latest" \
-      --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.completed_at) | last | .conclusion // "missing"')
+    # The newest run of this check by creation (ids grow), finished or not:
+    # an older success never stands in for a newer run still going.
+    passed=$(gh api "repos/$REPO/commits/$head/check-runs?check_name=$encoded&per_page=100" \
+      --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.id) | last
+        | if . == null then "missing" elif .status != "completed" then "unfinished" else .conclusion end')
     if [ "$passed" != success ]; then
       echo "::error title=Pre-check::Pull request #$pr has no passing pre-check on its head ${head:0:7}."
       finish human

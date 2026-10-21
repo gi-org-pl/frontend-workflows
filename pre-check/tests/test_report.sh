@@ -83,6 +83,7 @@ check "merge queue: every pull request of the group passed on its head" 0 env CH
 if ! grep -q "pulls/1 " "$FAKE_LOG" || ! grep -q "pulls/2 " "$FAKE_LOG"; then echo "FAIL the entry ahead was not checked"; failures=$((failures + 1)); fi
 if grep -q "pulls/3 " "$FAKE_LOG"; then echo "FAIL an entry behind was checked"; failures=$((failures + 1)); fi
 check "merge queue: no passing check" 1 env FAKE_CHECK=failure CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
+check "merge queue: the newest run is unfinished" 1 env FAKE_CHECK=unfinished CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
 check "merge queue: the entry is not in the queue" 1 env MERGE_HEAD_SHA=fff CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
 check "merge queue: the branch names another pull request" 1 env MERGE_HEAD_REF=refs/heads/gh-readonly-queue/main/pr-3-abc2 CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
 check "merge queue: no pull request in the ref" 1 env MERGE_HEAD_REF=refs/heads/other CHECK_RUN_ID=5 bash "$HERE/report.sh" queue

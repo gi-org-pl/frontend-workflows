@@ -119,7 +119,9 @@ def hunks(patch):
     return out
 
 
-def classify(files, excludes, max_lines, max_patch_bytes):
+def classify(files, excludes, max_lines, max_patch_bytes, special=frozenset()):
+    """SPECIAL: paths that are a symlink or a submodule on either side; the
+    diff of one does not show the code it brings in."""
     for pattern in excludes:
         if pattern not in EXCLUDE_POLICY:
             raise Abort("exclusion_policy")
@@ -156,6 +158,9 @@ def classify(files, excludes, max_lines, max_patch_bytes):
             continue
         if status in ("renamed", "copied") and patch is None:
             result["unreviewable"].append({"path": name, "reason": "{} without a diff".format(status)})
+            continue
+        if any(n in special for n in names):
+            result["unreviewable"].append({"path": name, "reason": "a symlink or a submodule"})
             continue
         if matches(name, excludes) and (not old or matches(old, excludes)):
             result["excluded"].append(name)

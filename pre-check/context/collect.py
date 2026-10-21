@@ -53,6 +53,25 @@ def fenced(items):
     return "```text\n" + ("\n".join(items) if items else "(none)") + "\n```"
 
 
+# Git modes whose diff does not show the code: a symlink, a submodule.
+SPECIAL_MODES = ("120000", "160000")
+
+
+def special_paths(gh, ctx, repo, head, base, files):
+    """The changed paths that are a symlink or a submodule at the head or the
+    base commit. GitHub's file records carry no mode, so the trees are read; a
+    tree too large to list goes to cut_sources, so the result needs a person."""
+    paths = {f.get("filename") for f in files} | {f["previous_filename"] for f in files if f.get("previous_filename")}
+    special = set()
+    for sha in (head, base):
+        tree = gh.api("repos/{}/git/trees/{}?recursive=1".format(repo, sha))
+        if tree.get("truncated"):
+            ctx.cut_sources.append("the file modes of commit {} (its tree is too large to list)".format(sha[:7]))
+        special |= {item["path"] for item in tree.get("tree", [])
+                    if item.get("path") in paths and item.get("mode") in SPECIAL_MODES}
+    return special
+
+
 def collect(gh, env):
     repo, number, ctx_dir = env["REPO"], env["PR_NUMBER"], env["CTX"]
     owner = repo.split("/")[0]
@@ -73,8 +92,10 @@ def collect(gh, env):
 
     files = gh.api("repos/{}/pulls/{}/files?per_page=100".format(repo, number), paginate=True)
     excludes = [p for p in env.get("EXCLUDE_PATHS", "").splitlines() if p.strip()]
+    special = special_paths(gh, ctx, repo, head, base, files)
     try:
-        classification, patch = diff.classify(files, excludes, int(env.get("MAX_DIFF_LINES", "3000")), diff.MAX_PATCH_BYTES)
+        classification, patch = diff.classify(files, excludes, int(env.get("MAX_DIFF_LINES", "3000")), diff.MAX_PATCH_BYTES,
+                                              special)
     except diff.Abort as reason:
         raise Abort(str(reason))
     with open(os.path.join(ctx_dir, "diff.patch"), "w", encoding="utf-8") as fh:

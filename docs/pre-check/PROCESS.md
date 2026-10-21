@@ -55,7 +55,7 @@ A pull request **needs a person** when any of these holds - each is decided by a
 
 - no changed file could be reviewed, or the diff was cut at the cap, or GitHub did not list all files,
 - a change has no reviewable diff: a binary or empty file (raster images excepted), a file too large to show, a mode or
-  type change, a rename or copy without a diff,
+  type change, a symlink or a submodule (read from the head and base trees), a rename or copy without a diff,
 - a changed path, old or new, is CI (`.github/workflows/`, `.github/actions/`), code owners (any supported
   `CODEOWNERS` location), a dependency manifest or lock file (`package.json`, npm, Yarn, pnpm, Bun), package-manager
   configuration, plugins or hooks, git hooks, build configuration (`*.config.*`, `tsconfig*.json`, `biome.json`,

@@ -97,6 +97,23 @@ class ProtectedPathTest(unittest.TestCase):
         result = run([f(".github/workflows/x.yml", status="renamed", old="tmp/x.yml")])
         self.assertIn(".github/workflows/x.yml", human(result))
 
+    def test_symlinks_and_submodules_are_unreviewable(self):
+        result = diff.classify([f("src/link.ts", status="added"), f("vendor/lib", status="modified"), f("src/a.ts")],
+                               DEFAULT, 3000, 150000, special={"src/link.ts", "vendor/lib"})[0]
+        self.assertEqual(unreviewable(result), {"src/link.ts", "vendor/lib"})
+        self.assertEqual(result["reviewed"], ["src/a.ts"])
+
+    def test_special_modes_come_from_both_trees(self):
+        ctx = documents.Context("n")
+        gh = FakeGitHub({
+            "repos/r/git/trees/h?recursive=1": {"tree": [{"path": "src/link.ts", "mode": "120000"},
+                                                         {"path": "src/a.ts", "mode": "100644"}]},
+            "repos/r/git/trees/b?recursive=1": {"tree": [{"path": "vendor/lib", "mode": "160000"}], "truncated": True},
+        })
+        files = [f("src/link.ts", status="added"), f("src/a.ts"), f("vendor/lib", status="removed")]
+        self.assertEqual(collect.special_paths(gh, ctx, "r", "h", "b", files), {"src/link.ts", "vendor/lib"})
+        self.assertEqual(len(ctx.cut_sources), 1)
+
     def test_rename_without_patch(self):
         result = run([f("ci/build.yml", status="renamed", old=".github/workflows/build.yml", patch=None, changes=0)])
         self.assertIn("ci/build.yml", unreviewable(result))
