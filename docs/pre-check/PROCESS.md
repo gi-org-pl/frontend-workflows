@@ -318,7 +318,8 @@ Three kinds of actors matter:
   character or a backtick stops the run.
 - **The verdict is deterministic where it can be.** `context/diff.py` decides coverage from GitHub's file records (both
   paths of a rename, the status, the patch); the reviewer's reading of the diff is measured from its own log (every line
-  of `diff.patch` must have been read); the outcome counts every finding and ignores the reviewer's own `result`.
+  of `diff.patch` must have come back from a Read call under its number and whole - a line the tool truncated, or a
+  page cut inside a line, does not count); the outcome counts every finding and ignores the reviewer's own `result`.
 - **Escaped plain-text output and a final credential scan.** See [The Pre-check comment](#the-pre-check-comment).
   Nothing the reviewer wrote reaches a workflow command or the log; the execution log is not uploaded, and only
   numbers, a fixed word, tool names and the redacted result (as a one-day artifact for the review job) leave the job.

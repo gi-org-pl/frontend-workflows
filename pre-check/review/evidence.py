@@ -14,7 +14,7 @@ import re
 import sys
 
 # The Read tool numbers every line it returns: "    12\t..." (or "12→...").
-NUMBERED_LINE = re.compile(r"^\s*(\d+)[\t→]", re.MULTILINE)
+NUMBERED_LINE = re.compile(r"^\s*(\d+)[\t→](.*)$", re.MULTILINE)
 
 
 def _result_text(content):
@@ -26,12 +26,15 @@ def _result_text(content):
 
 
 def coverage(messages, diff_path, lines):
-    """full when successful Read results on DIFF_PATH returned lines 1..LINES.
+    """full when successful Read results on DIFF_PATH returned every one of
+    LINES (the lines of the diff) whole.
 
     A Read call counts only through its result: the result must not be an
-    error, and only the line numbers it actually shows count - a failed or a
-    short read never credits the range it asked for."""
-    if lines == 0:
+    error, and a line counts only when the result shows it under its number
+    with its whole text (trailing white space aside) - a failed or a short
+    read never credits the range it asked for, and a line the tool truncated
+    or a partial page cut inside a line never credits that line."""
+    if not lines:
         return "full"
     reads = {}
     for message in messages:
@@ -41,7 +44,7 @@ def coverage(messages, diff_path, lines):
             if (isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Read"
                     and (block.get("input") or {}).get("file_path") == diff_path and block.get("id")):
                 reads[block["id"]] = True
-    ranges = []
+    seen = set()
     for message in messages:
         if message.get("type") != "user":
             continue
@@ -50,17 +53,13 @@ def coverage(messages, diff_path, lines):
                 continue
             if block.get("is_error"):
                 continue
-            numbers = [int(n) for n in NUMBERED_LINE.findall(_result_text(block.get("content")))]
-            if numbers:
-                ranges.append((min(numbers), max(numbers)))
-    if not ranges:
+            for number, text in NUMBERED_LINE.findall(_result_text(block.get("content"))):
+                index = int(number) - 1
+                if 0 <= index < len(lines) and text.rstrip() == lines[index].rstrip():
+                    seen.add(index)
+    if not seen:
         return "none"
-    end = 0
-    for first, last in sorted(ranges):
-        if first > end + 1:
-            return "partial"
-        end = max(end, last)
-    return "full" if end >= lines else "partial"
+    return "full" if len(seen) == len(lines) else "partial"
 
 
 def tools(messages):
@@ -99,10 +98,12 @@ def main(argv):
     except (OSError, ValueError):
         messages = []
     try:
-        with open(diff_path, encoding="utf-8") as fh:
-            lines = sum(1 for _ in fh)
+        with open(diff_path, encoding="utf-8", newline="") as fh:
+            lines = fh.read().split("\n")
     except OSError:
-        lines = 0
+        lines = [""]
+    if lines[-1] == "":
+        lines.pop()
     messages = [m for m in messages if isinstance(m, dict)] if isinstance(messages, list) else []
     values = {"coverage": coverage(messages, diff_path, lines), "tools": tools(messages), "usage": json.dumps(usage(messages))}
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
