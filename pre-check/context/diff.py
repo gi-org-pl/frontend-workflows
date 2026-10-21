@@ -50,7 +50,7 @@ HUMAN_REVIEW = [
     (".npmrc", "package-manager configuration"), ("*/.npmrc", "package-manager configuration"),
     (".yarnrc", "package-manager configuration"), (".yarnrc.yml", "package-manager configuration"),
     ("*/.yarnrc", "package-manager configuration"), ("*/.yarnrc.yml", "package-manager configuration"),
-    (".yarn/*", "package-manager plugins and releases"),
+    (".yarn/*", "package-manager plugins and releases"), ("*/.yarn/*", "package-manager plugins and releases"),
     (".pnpmfile.cjs", "package-manager hooks"), ("*/.pnpmfile.cjs", "package-manager hooks"),
     (".husky/*", "git hooks"), ("*/.husky/*", "git hooks"),
     ("*.config.js", "build configuration"), ("*.config.cjs", "build configuration"),

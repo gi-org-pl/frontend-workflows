@@ -129,7 +129,7 @@ def collect_issues(gh, ctx, refs, owner, out_dir):
         issues.append(ref)
         links += "\n" + text[:MAX_ISSUE_BYTES]
     if not_read:
-        ctx.notes.append("Only the first {} linked issues were read; these further references were not: {}.".format(MAX_ISSUES, " ".join(not_read)))
+        ctx.cut_sources.append("linked issues beyond the first {}: {}".format(MAX_ISSUES, " ".join(not_read)))
     if outside:
         ctx.notes.append("{} comment(s) on the linked issues by people outside the organisation were left out.".format(outside))
     return issues, links
@@ -168,7 +168,7 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
             return
         target = os.path.join(out_dir, repo, path)
         if not safe_relpath(path) or not inside(target, out_dir):
-            ctx.notes.append("A linked document path was rejected as unsafe.")
+            ctx.cut_sources.append("a linked document of {} at a path the pre-check does not fetch".format(repo))
             return
         try:
             data = gh.raw("repos/{}/contents/{}?ref={}".format(repo, path, sha))
@@ -199,7 +199,8 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
                 ctx.cut_sources.append("a linked document of {} (the repository could not be read)".format(repo))
                 continue
             if not sha:
-                ctx.notes.append("A linked document outside the default branch, or with an unsafe path, was skipped.")
+                ctx.cut_sources.append("a linked document of {} outside its default branch, or at a path the pre-check "
+                                       "does not fetch".format(repo))
                 continue
             if kind == "blob":
                 fetch(repo, sha, path)
@@ -213,7 +214,7 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
                 if entry.get("type") == "file" and re.search(r"\.(md|mdx|txt)$", entry.get("name", "")):
                     fetch(repo, sha, entry["path"])
     if skipped:
-        ctx.notes.append("Only the first {} linked documents were read; not read: {}.".format(MAX_DOC_FILES, " ".join(skipped)))
+        ctx.cut_sources.append("linked documents beyond the first {}: {}".format(MAX_DOC_FILES, " ".join(skipped)))
     return docs
 
 

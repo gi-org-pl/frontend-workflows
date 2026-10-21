@@ -83,6 +83,7 @@ class ProtectedPathTest(unittest.TestCase):
 
     def test_nested_configuration_in_a_monorepo(self):
         for name in ["packages/app/.storybook/main.ts", "apps/web/biome.json", "apps/web/.yarnrc.yml",
+                     "packages/app/.yarn/plugins/plugin.cjs",
                      "apps/web/.husky/pre-push", "apps/web/vercel.json", "apps/web/netlify.toml",
                      "apps/web/docker-compose.yml", "apps/web/compose.yaml", "apps/web/.releaserc.json"]:
             self.assertIn(name, human(run([f(name)])), name)
@@ -226,7 +227,19 @@ class DocumentsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             docs = documents.collect_documents(gh, ctx, text, ["gi-org-pl/product"], "gi-org-pl", out)
         self.assertEqual(docs, ["gi-org-pl/product/a.md@" + "f" * 7])
-        self.assertEqual(sum("skipped" in n for n in ctx.notes), 3)
+        # Not given to the reviewer, so the result needs a person.
+        self.assertEqual(sum("outside its default branch" in c for c in ctx.cut_sources), 3)
+
+    def test_linked_sources_over_the_caps_need_a_person(self):
+        refs = ["gi-org-pl/app#{}".format(n) for n in range(1, documents.MAX_ISSUES + 2)]
+        routes = {"repos/gi-org-pl/app/issues/{}".format(n): {"title": "t", "body": "", "author_association": "MEMBER"} for n in range(1, 20)}
+        routes.update({"repos/gi-org-pl/app/issues/{}/comments?per_page=100".format(n): [] for n in range(1, 20)})
+        ctx = documents.Context("n")
+        with tempfile.TemporaryDirectory() as out:
+            issues, _ = documents.collect_issues(FakeGitHub(routes), ctx, refs, "gi-org-pl", out)
+        self.assertEqual(len(issues), documents.MAX_ISSUES)
+        self.assertEqual(len(ctx.cut_sources), 1)
+        self.assertIn(refs[-1], ctx.cut_sources[0])
 
     def test_quote_records_cuts_without_breaking_characters(self):
         ctx = documents.Context("n")

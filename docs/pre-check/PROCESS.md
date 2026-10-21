@@ -88,11 +88,13 @@ The reviewer is isolated from the agent that wrote the code and from GitHub. It 
 - the diff of the pull request, classified by `context/diff.py` and in risk order (application code first), and its
   description; tests and test helpers are left out of the diff by an immutable policy and listed with their size,
 - the linked issues **of this organisation** opened by its members, with its members' comments (owners, members,
-  collaborators); the title and body of an issue opened by anyone else, and comments by anyone else, are left out,
+  collaborators); the title and body of an issue opened by anyone else, and comments by anyone else, are left out; at
+  most 5 issues - a pull request that links more needs a person,
 - the Figma links found there - recorded, but **not opened**: the reviewer sees neither Figma nor images (see
   [Design comparison](#design-comparison)),
 - documents in `gi-org-pl/product` that the issues link, **only from its default branch**, pinned to the commit it
-  pointed at during the run (a link to another branch or a tag is skipped),
+  pointed at during the run, at most 20 (a link to another branch or a tag, at a path outside the plain character
+  set, or beyond the 20 is not given to the reviewer, and the pull request needs a person),
 - the organisation's standards, [gi-tech-standards](https://github.com/gi-org-pl/gi-tech-standards), at the commit
   pinned by the `standards_ref` input (a constant in the workflow, bumped with a release of this repository),
 - the repository's own guide - `AGENTS.md` and `CLAUDE.md` files at any depth, `README.md`, `docs/` and the pull
