@@ -1,0 +1,12 @@
+# Keeps the actions the workflows use up to date. Updates arrive as pull
+# requests that bump the pinned commit SHA and the version comment; they are
+# reviewed like any other change, because these workflows run with secrets in
+# the calling repositories.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

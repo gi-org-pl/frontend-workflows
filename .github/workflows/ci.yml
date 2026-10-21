@@ -1,0 +1,73 @@
+name: ci
+
+# Checks every change to this repository: the workflow files with actionlint,
+# the shell scripts with shellcheck, the Markdown with markdownlint, and the
+# tests of every workflow that has them (a tests/ directory under its top
+# level directory, e.g. pre-check/tests/).
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        env:
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          archive="actionlint_${VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${archive}"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          # actionlint does not know the job.workflow_* and job.check_run_id
+          # contexts yet; GitHub resolves them.
+          "$RUNNER_TEMP/actionlint" -ignore 'property "(workflow_sha|workflow_repository|check_run_id)" is not defined'
+
+      - name: shellcheck
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh')
+          if (( ${#scripts[@]} )); then shellcheck "${scripts[@]}"; else echo "No shell scripts."; fi
+
+      - name: markdownlint
+        run: npx --yes markdownlint-cli@0.49.1 '**/*.md'
+
+  tests:
+    name: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Run the tests of every workflow
+        run: |
+          found=0
+          for tests in */tests; do
+            [ -d "$tests" ] || continue
+            found=1
+            echo "::group::$tests"
+            python3 -m unittest discover -s "$tests" -v
+            for script in "$tests"/test_*.sh; do
+              if [ -f "$script" ]; then bash "$script"; fi
+            done
+            echo "::endgroup::"
+          done
+          (( found )) || echo "No tests yet."
