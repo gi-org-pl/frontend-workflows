@@ -119,8 +119,15 @@ check "publish: an unknown verdict fails" 1 env GATE=success VERDICT=other bash 
 check "publish: a merge queue entry dispatches" 0 env GATE=success VERDICT=queue MERGE_HEAD_REF=refs/heads/gh-readonly-queue/main/pr-1-abc CHECK_RUN_ID=5 bash "$HERE/report.sh" publish
 check "publish: a superseded analysis does not pass" 1 env GATE=success VERDICT=run ANALYSE=cancelled bash "$HERE/report.sh" publish
 check "publish: a failed analysis fails" 1 env GATE=success VERDICT=run ANALYSE=failure ABORT=failed bash "$HERE/report.sh" publish
-check "publish: a clean analysis passes" 0 env GATE=success VERDICT=run ANALYSE=success RESULT_JSON="$RJ" SCOPE_JSON="$SJ" COVERAGE=full bash "$HERE/report.sh" publish
-check "publish: an empty result fails" 1 env GATE=success VERDICT=run ANALYSE=success RESULT_JSON="" SCOPE_JSON="$SJ" bash "$HERE/report.sh" publish
+mkdir -p "$T/artifact" "$T/empty"
+printf '%s' "$RJ" > "$T/artifact/result.json"
+printf '%s' "$SJ" > "$T/artifact/scope.json"
+printf '%s' "$SJ" > "$T/empty/scope.json"
+check "publish: a clean analysis passes" 0 env GATE=success VERDICT=run ANALYSE=success RESULT_DIR="$T/artifact" COVERAGE=full bash "$HERE/report.sh" publish
+check "publish: a missing result fails" 1 env GATE=success VERDICT=run ANALYSE=success RESULT_DIR="$T/empty" bash "$HERE/report.sh" publish
+printf '%s' '{"withheld": true}' > "$T/artifact/result.json"
+check "publish: a result withheld in the analyse job fails" 1 env GATE=success VERDICT=run ANALYSE=success RESULT_DIR="$T/artifact" COVERAGE=full bash "$HERE/report.sh" publish
+posted_has "withheld" || { echo "FAIL withheld comment"; failures=$((failures + 1)); }
 check "an API failure while publishing fails" 1 env FAKE_FAIL="pulls/1 --jq" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
 
 if (( failures )); then

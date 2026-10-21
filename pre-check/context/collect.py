@@ -22,8 +22,8 @@ Environment:
 
 Exit 3 with a reason code in CTX/abort when the pull request cannot be
 collected safely; the code is one of ABORT_CODES. With GITHUB_OUTPUT set, it
-also writes the step outputs: prompt, schema (the reviewer's output schema),
-scope, or abort.
+also writes the step outputs: prompt and schema (the reviewer's output schema),
+or abort.
 """
 
 import json
@@ -210,8 +210,7 @@ def main():
     with open(os.path.join(env["CTX"], "PROMPT.md"), encoding="utf-8") as fh:
         prompt = fh.read()
     schema = contracts.load(os.path.join(os.path.dirname(HERE), "review", "schema.json"))
-    write_outputs(env, {"prompt": prompt, "schema": json.dumps(schema, separators=(",", ":")),
-                        "scope": json.dumps(scope, separators=(",", ":"))})
+    write_outputs(env, {"prompt": prompt, "schema": json.dumps(schema, separators=(",", ":"))})
     print("Context collected: {} files reviewed ({} lines), {} not reviewed, {} excluded ({} lines), {} without a reviewable diff, "
           "{} for a person, {} issues, {} documents, {} cut sources.".format(
               len(scope["reviewed"]), scope["diff_lines"], len(scope["not_reviewed"]), len(scope["excluded"]),

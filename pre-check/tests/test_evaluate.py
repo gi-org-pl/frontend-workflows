@@ -68,6 +68,11 @@ class VerdictTest(unittest.TestCase):
     def test_more_findings_than_allowed_needs_a_person(self):
         self.assertEqual(outcome(result([finding(title=str(i)) for i in range(31)]))["outcome"], "human")
 
+    def test_a_result_withheld_upstream_needs_a_person(self):
+        evaluation = outcome({"withheld": True})
+        self.assertEqual((evaluation["outcome"], evaluation["withheld"]), ("human", True))
+        self.assertEqual(evaluate.evaluate({"withheld": True}, {"head": "a"}, "full", RESULT_SCHEMA, SCOPE_SCHEMA)["outcome"], "invalid")
+
     def test_reviewer_result_field_is_ignored(self):
         self.assertEqual(outcome(result([finding("blocking")], result="passed"))["outcome"], "changes")
         self.assertEqual(outcome(result([], result="changes"))["outcome"], "clean")

@@ -407,6 +407,7 @@ pre-check/
   review/
     schema.json                 the reviewer's output, passed to the CLI as --json-schema
     evidence.py                 the measured reading of the diff, the tool set and usage, from the reviewer's log
+    package.py                  redacts the result and hands it, with the scope, to the review job as an artifact
     evaluate.py                 the authoritative outcome, from the complete validated result and scope
     render.py                   presentation only: the comment and the inline comments
   tests/                        test_context, test_evaluate, test_render, test_gate, test_evidence, test_report.sh
@@ -420,8 +421,8 @@ The data passed between them, and where it is checked:
 | From | To | What | Checked by |
 | --- | --- | --- | --- |
 | `gate.py` | review job | `verdict` (`run`, `queue`, `skip`, `block`) and a fixed-text `reason` | `report.sh publish` refuses any other verdict |
-| `context/collect.py` | `review/` | `scope.json` | `scope.schema.json`, when written and again in `evaluate.py` |
-| the reviewer | `review/` | the structured result | the CLI against `review/schema.json`, again in `evaluate.py` |
+| `context/collect.py` | `review/` | `scope.json`, passed to the review job as a one-day artifact | `scope.schema.json`, when written and again in `evaluate.py` |
+| the reviewer | `review/` | the structured result, redacted (or withheld) by `review/package.py` and passed as the same artifact | the CLI against `review/schema.json`, again in `evaluate.py` |
 | `review/evidence.py` | `evaluate.py` | `coverage` (`full`, `partial`, `none`), tool names, usage numbers | fixed words and numbers only |
 | `review/evaluate.py` | `render.py`, `report.sh` | the evaluation: one of the outcome states, the reasons, counts | `contracts.OUTCOMES` |
 

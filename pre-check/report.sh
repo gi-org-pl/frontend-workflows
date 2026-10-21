@@ -103,7 +103,8 @@ note_comment() {
 case "$MODE" in
 publish)
   # The review job: dispatch on how the gate and the analysis ended
-  # (GATE, VERDICT, GATE_REASON, ANALYSE, ABORT, RESULT_JSON, SCOPE_JSON).
+  # (GATE, VERDICT, GATE_REASON, ANALYSE, ABORT; RESULT_DIR holds result.json
+  # and scope.json from the analyse job's artifact).
   if [ "${GATE:-}" = cancelled ]; then
     echo "The gate was superseded by a newer run. Nothing is published."
     exit 1
@@ -122,13 +123,10 @@ publish)
     echo "The review was superseded by a newer run. Nothing is published."
     exit 1
   fi
-  if [ "${ANALYSE:-}" != success ] || [ -z "${RESULT_JSON:-}" ] || [ -z "${SCOPE_JSON:-}" ]; then
+  if [ "${ANALYSE:-}" != success ] || [ ! -s "${RESULT_DIR:-/nonexistent}/result.json" ] || [ ! -s "${RESULT_DIR:-/nonexistent}/scope.json" ]; then
     REASON="${ABORT:-failed}" exec bash "$0" error
   fi
-  work=$(mktemp -d)
-  printf '%s' "$RESULT_JSON" > "$work/result.json"
-  printf '%s' "$SCOPE_JSON" > "$work/scope.json"
-  RESULT_FILE="$work/result.json" SCOPE_FILE="$work/scope.json" exec bash "$0" report
+  RESULT_FILE="$RESULT_DIR/result.json" SCOPE_FILE="$RESULT_DIR/scope.json" exec bash "$0" report
   ;;
 start)
   : "${PR_NUMBER:?}" "${HEAD_SHA:?}"
@@ -205,8 +203,11 @@ outcome=$(jq -r .outcome "$out/evaluation.json")
 if [ "$outcome" = invalid ]; then
   REASON=invalid exec bash "$0" error
 fi
-python3 "$HERE/review/render.py" "$RESULT_FILE" "$SCOPE_FILE" "$out/evaluation.json" "$out"
-python3 "$HERE/review/evaluate.py" check-output "$out/evaluation.json" "$out/comment.md" "$out/inline.json"
+# A result withheld in the analyse job (package.py) has no text to render.
+if [ "$(jq -r .withheld "$out/evaluation.json")" != true ]; then
+  python3 "$HERE/review/render.py" "$RESULT_FILE" "$SCOPE_FILE" "$out/evaluation.json" "$out"
+  python3 "$HERE/review/evaluate.py" check-output "$out/evaluation.json" "$out/comment.md" "$out/inline.json"
+fi
 outcome=$(jq -r .outcome "$out/evaluation.json")
 if [ "$(jq -r .withheld "$out/evaluation.json")" = true ]; then
   python3 "$HERE/review/render.py" withheld "$out/evaluation.json" "$out"

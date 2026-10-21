@@ -104,6 +104,9 @@ def evaluate(result, scope, coverage, result_schema, scope_schema):
     if not contracts.validate(scope, scope_schema):
         return {"outcome": "invalid", "reasons": ["the collected scope does not match its schema"],
                 "blocking": 0, "advisory": 0, "total": 0, "withheld": False}
+    if result == {"withheld": True}:  # package.py found credential-like text in the analyse job
+        return {"outcome": "human", "reasons": ["the reviewer's output contains text that looks like a credential"],
+                "blocking": 0, "advisory": 0, "total": 0, "withheld": True}
     if not valid_result(result, result_schema):
         return {"outcome": "invalid", "reasons": ["the reviewer returned no valid result"],
                 "blocking": 0, "advisory": 0, "total": 0, "withheld": False}
