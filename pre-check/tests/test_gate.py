@@ -22,7 +22,7 @@ def env(**extra):
             "CALLER_REF": "gi-org-pl/app/.github/workflows/frontend-pre-check.yml@refs/pull/7/merge",
             "MODEL": "sonnet", "MAX_TURNS": "60", "MAX_DIFF_LINES": "3000", "TIMEOUT": "20",
             "EXCLUDE_PATHS": "*.test.ts", "DOC_REPOS": "gi-org-pl/product",
-            "WORKFLOW_SHA": "a" * 40, "WORKFLOW_REPOSITORY": "gi-org-pl/gi-tech-standards"}
+            "WORKFLOW_SHA": "a" * 40, "WORKFLOW_REPOSITORY": "gi-org-pl/frontend-workflows", "STANDARDS_REF": "b" * 40}
     data.update(extra)
     return data
 
@@ -83,7 +83,7 @@ class InputTest(unittest.TestCase):
     def test_invalid_inputs(self):
         for extra in [{"MODEL": "sonnet --mcp-config x"}, {"MODEL": "a\nb"}, {"MAX_TURNS": "0"}, {"MAX_TURNS": "60 --x"},
                       {"MAX_DIFF_LINES": "50"}, {"TIMEOUT": "60"}, {"MAX_RUNS": "100"}, {"EXCLUDE_PATHS": "a b"},
-                      {"DOC_REPOS": "other/repo"}, {"WORKFLOW_SHA": ""}, {"WORKFLOW_REPOSITORY": "../x"}]:
+                      {"DOC_REPOS": "other/repo"}, {"WORKFLOW_SHA": ""}, {"STANDARDS_REF": "main"}, {"WORKFLOW_REPOSITORY": "../x"}]:
             with self.assertRaises(gate.Invalid, msg=str(extra)):
                 gate.check_inputs(env(**extra))
 

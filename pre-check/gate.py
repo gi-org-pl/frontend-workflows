@@ -47,6 +47,8 @@ def check_inputs(env):
     for repo in env.get("DOC_REPOS", "").splitlines():
         if repo and not re.match(r"^{}/[A-Za-z0-9._-]+$".format(re.escape(repo_owner)), repo):
             raise Invalid("doc_repos")
+    if not re.match(r"^[0-9a-f]{40}$", env.get("STANDARDS_REF", "")):
+        raise Invalid("standards_ref must be a full commit SHA of gi-org-pl/gi-tech-standards")
     if not re.match(r"^[0-9a-f]{40}$", env.get("WORKFLOW_SHA", "")):
         raise Invalid("job.workflow_sha is empty; the scripts cannot be pinned")
     workflow_repository = env.get("WORKFLOW_REPOSITORY", "")

@@ -14,7 +14,7 @@ each checked by allowed_link().
 Usage:
   render.py RESULT_JSON SCOPE_JSON EVALUATION_JSON OUT_DIR   writes comment.md and inline.json
   render.py withheld EVALUATION_JSON OUT_DIR                 writes the notice that replaces a withheld result
-Environment: HEAD_SHA, RUN_URL, MODEL, STANDARDS_SHA, COVERAGE.
+Environment: HEAD_SHA, RUN_URL, MODEL, WORKFLOW_SHA, COVERAGE.
 """
 
 import hashlib
@@ -154,15 +154,15 @@ def fingerprint(f):
 def footer():
     head = re.sub(r"[^0-9a-f]", "", os.environ.get("HEAD_SHA", ""))[:7]
     model = re.sub(r"[^A-Za-z0-9._-]", "", os.environ.get("MODEL", ""))[:64] or "default"
-    standards = re.sub(r"[^0-9a-f]", "", os.environ.get("STANDARDS_SHA", ""))[:40]
+    workflow = re.sub(r"[^0-9a-f]", "", os.environ.get("WORKFLOW_SHA", ""))[:40]
     run_url = os.environ.get("RUN_URL", "")
     return (
         "\n\n<sub>AI pre-check of commit `{}` with model `{}` ([workflow run]({})), following "
-        "[the reviewer instructions](https://github.com/gi-org-pl/gi-tech-standards/blob/{}/docs/frontend/pre-check/REVIEWER.md). "
+        "[the reviewer instructions](https://github.com/gi-org-pl/frontend-workflows/blob/{}/docs/pre-check/REVIEWER.md). "
         "Advisory only: the reviewer can be misled by the content it reviews and can miss things; a clean result is "
         "never a person's sign-off. The result that counts is the `frontend-pre-check / review` check of the head "
         "commit.</sub>"
-    ).format(head, model, run_url if allowed_link(run_url) else "", standards)
+    ).format(head, model, run_url if allowed_link(run_url) else "", workflow)
 
 
 def result_line(evaluation):

@@ -13,7 +13,8 @@ Environment:
   HEAD_SHA            head commit of the event; the run stops if the pull
                       request has moved on (a re-run of an old run)
   CTX                 output directory (may already hold standards/)
-  STANDARDS_DIR       checkout of gi-tech-standards
+  STANDARDS_DIR       checkout of gi-tech-standards at the pinned standards_ref
+  REVIEWER_FILE       the reviewer instructions (docs/pre-check/REVIEWER.md of this repository)
   MAX_DIFF_LINES      changed lines reviewed at most
   EXCLUDE_PATHS       newline-separated exclusions, each one of diff.EXCLUDE_POLICY
   DOC_REPOS           newline-separated owner/name repositories for documents
@@ -119,7 +120,7 @@ def collect(gh, env):
     with open(os.path.join(ctx_dir, "scope.json"), "w", encoding="utf-8") as fh:
         json.dump(scope, fh)
     write_index(ctx_dir, repo, number, scope, ctx.nonce)
-    write_prompt(ctx_dir, env["STANDARDS_DIR"], repo, number, head, ctx.nonce)
+    write_prompt(ctx_dir, env["REVIEWER_FILE"], repo, number, head, ctx.nonce)
     return scope
 
 
@@ -164,10 +165,10 @@ def write_index(ctx_dir, repo, number, s, nonce):
         fh.write("\n".join(parts) + "\n")
 
 
-def write_prompt(ctx_dir, standards_dir, repo, number, head, nonce):
+def write_prompt(ctx_dir, reviewer_file, repo, number, head, nonce):
     # The prompt stays small whatever the size of the pull request: the action
     # passes it in one environment variable, which Linux limits to 128 KiB.
-    with open(os.path.join(standards_dir, "docs", "frontend", "pre-check", "REVIEWER.md"), encoding="utf-8") as fh:
+    with open(reviewer_file, encoding="utf-8") as fh:
         instructions = fh.read()
     with open(os.path.join(ctx_dir, "PROMPT.md"), "w", encoding="utf-8") as fh:
         fh.write(instructions + "\n---\n\nPull request {}#{} at commit {}. Quoted data in this run is marked with the nonce {}.\n"
@@ -188,7 +189,7 @@ def write_outputs(env, values):
 
 def main():
     env = dict(os.environ)
-    for key in ("REPO", "PR_NUMBER", "CTX", "STANDARDS_DIR", "HEAD_SHA"):
+    for key in ("REPO", "PR_NUMBER", "CTX", "STANDARDS_DIR", "REVIEWER_FILE", "HEAD_SHA"):
         if not env.get(key):
             print("missing " + key, file=sys.stderr)
             return 2

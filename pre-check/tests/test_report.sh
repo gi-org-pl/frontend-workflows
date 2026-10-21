@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Integration test of report.sh against a fake gh: the exit status of every
 # mode, which is the contract of the required check, and what gets published.
-# Run: bash .github/frontend-pre-check/test_report.sh
+# Run: bash pre-check/tests/test_report.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)

@@ -204,11 +204,12 @@ class DocumentsTest(unittest.TestCase):
 class CollectTest(unittest.TestCase):
     def env(self, tmp, **extra):
         standards = os.path.join(tmp, "standards")
-        os.makedirs(os.path.join(standards, "docs", "frontend", "pre-check"))
-        with open(os.path.join(standards, "docs", "frontend", "pre-check", "REVIEWER.md"), "w", encoding="utf-8") as fh:
+        os.makedirs(standards)
+        reviewer = os.path.join(tmp, "REVIEWER.md")
+        with open(reviewer, "w", encoding="utf-8") as fh:
             fh.write("instructions")
         os.system('git init -q "{0}" && git -C "{0}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m x'.format(standards))
-        env = {"REPO": "gi-org-pl/app", "PR_NUMBER": "1", "CTX": os.path.join(tmp, "ctx"), "STANDARDS_DIR": standards,
+        env = {"REPO": "gi-org-pl/app", "PR_NUMBER": "1", "CTX": os.path.join(tmp, "ctx"), "STANDARDS_DIR": standards, "REVIEWER_FILE": reviewer,
                "HEAD_SHA": "a" * 40, "MAX_DIFF_LINES": "3000", "EXCLUDE_PATHS": "\n".join(DEFAULT), "DOC_REPOS": ""}
         os.makedirs(env["CTX"])
         env.update(extra)

@@ -1,11 +1,12 @@
 name: frontend-pre-check
 
 # Reusable AI pre-check of a front-end pull request. Process, setup, outcome
-# states and the security model: docs/frontend/pre-check/PROCESS.md.
+# states and the security model: docs/pre-check/PROCESS.md.
 #
 # This file only orchestrates: jobs, permissions, dependencies and which
-# script runs where. The logic lives in .github/frontend-pre-check/, taken
-# from the commit of this workflow file (job.workflow_sha):
+# script runs where. The logic lives in pre-check/, taken from the commit of
+# this workflow file (job.workflow_sha); the standards the reviewer checks
+# against are read as data from gi-org-pl/gi-tech-standards at standards_ref:
 #   gate    - gate.py decides; no secret, no checkout of the pull request
 #   analyse - context/collect.py gathers the context from the API, the
 #             reviewer runs with the secret, a read-only token and read-only
@@ -38,7 +39,7 @@ on:
         type: number
         default: 3000
       exclude_paths:
-        description: "Newline-separated files left out of the diff; each must be one of the policy in .github/frontend-pre-check/context/diff.py (a caller can narrow it, never widen it)"
+        description: "Newline-separated files left out of the diff; each must be one of the policy in pre-check/context/diff.py (a caller can narrow it, never widen it)"
         type: string
         default: |
           *.test.ts
@@ -77,6 +78,10 @@ on:
         description: "Pre-check runs of one pull request in the last hour above which a run stops (1-60)"
         type: number
         default: 8
+      standards_ref:
+        description: "Full commit SHA of gi-org-pl/gi-tech-standards whose docs the reviewer checks against; bumped with a release of this repository"
+        type: string
+        default: "4e456132b7129a603f7ad943aafaad7b47caa2dc"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: "OAuth token of the Claude subscription (claude setup-token)"
@@ -107,7 +112,7 @@ jobs:
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
-          sparse-checkout: .github/frontend-pre-check
+          sparse-checkout: pre-check
           persist-credentials: false
           path: .pre-check-tools
 
@@ -123,6 +128,7 @@ jobs:
           DOC_REPOS: ${{ inputs.doc_repos }}
           WORKFLOW_SHA: ${{ job.workflow_sha }}
           WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          STANDARDS_REF: ${{ inputs.standards_ref }}
           HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
@@ -135,7 +141,7 @@ jobs:
           ACTOR: ${{ github.actor }}
           CALLER_REF: ${{ github.workflow_ref }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 .pre-check-tools/.github/frontend-pre-check/gate.py
+        run: python3 .pre-check-tools/pre-check/gate.py
 
       - name: Take the labels off before the review
         if: steps.decide.outputs.verdict == 'run'
@@ -144,7 +150,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
-        run: bash .pre-check-tools/.github/frontend-pre-check/report.sh start
+        run: bash .pre-check-tools/pre-check/report.sh start
 
   analyse:
     name: analyse
@@ -163,7 +169,6 @@ jobs:
       cancel-in-progress: true
     env:
       CTX: ${{ github.workspace }}/.pre-check-context
-      TOOLS: ${{ github.workspace }}/.pre-check-context/standards/.github/frontend-pre-check
     outputs:
       result: ${{ steps.review.outputs.structured_output }}
       scope: ${{ steps.context.outputs.scope }}
@@ -181,7 +186,9 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Check out gi-tech-standards at the commit of this workflow
+      # The scripts and the reviewer instructions, at the commit of this
+      # workflow file; kept outside the workspace the reviewer reads.
+      - name: Check out the pre-check at the commit of this workflow
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: ${{ job.workflow_repository }}
@@ -192,9 +199,16 @@ jobs:
       - name: Remove links and agent configuration from the checkout
         run: |
           mv .pre-check-tools "$RUNNER_TEMP/pre-check-tools"
-          bash "$RUNNER_TEMP/pre-check-tools/.github/frontend-pre-check/context/clean-checkout.sh" "$CTX"
-          mkdir -p "$CTX"
-          mv "$RUNNER_TEMP/pre-check-tools" "$CTX/standards"
+          bash "$RUNNER_TEMP/pre-check-tools/pre-check/context/clean-checkout.sh" "$CTX"
+
+      # The standards are data for the reviewer, at a pinned commit.
+      - name: Check out gi-tech-standards at standards_ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: gi-org-pl/gi-tech-standards
+          ref: ${{ inputs.standards_ref }}
+          path: .pre-check-context/standards
+          persist-credentials: false
 
       - name: Collect the context
         id: context
@@ -203,11 +217,12 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           STANDARDS_DIR: ${{ github.workspace }}/.pre-check-context/standards
+          REVIEWER_FILE: ${{ runner.temp }}/pre-check-tools/docs/pre-check/REVIEWER.md
           MAX_DIFF_LINES: ${{ inputs.max_diff_lines }}
           EXCLUDE_PATHS: ${{ inputs.exclude_paths }}
           DOC_REPOS: ${{ inputs.doc_repos }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 "$TOOLS/context/collect.py"
+        run: python3 "$RUNNER_TEMP/pre-check-tools/pre-check/context/collect.py"
 
       # Only Read, Glob and Grep exist in the session (--tools), in restricted
       # mode, with no MCP servers, no hooks and the runner's own paths and .git
@@ -240,7 +255,7 @@ jobs:
         if: always() && steps.review.outputs.execution_file != ''
         env:
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
-        run: python3 "$TOOLS/review/evidence.py" "$EXECUTION_FILE" "$CTX/diff.patch"
+        run: python3 "$RUNNER_TEMP/pre-check-tools/pre-check/review/evidence.py" "$EXECUTION_FILE" "$CTX/diff.patch"
 
   review:
     name: review
@@ -265,7 +280,7 @@ jobs:
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
-          sparse-checkout: .github/frontend-pre-check
+          sparse-checkout: pre-check
           persist-credentials: false
           path: .pre-check-tools
 
@@ -288,6 +303,6 @@ jobs:
           TOOLS_USED: ${{ needs.analyse.outputs.tools }}
           MERGE_HEAD_REF: ${{ github.event.merge_group.head_ref }}
           CHECK_RUN_ID: ${{ job.check_run_id }}
-          STANDARDS_SHA: ${{ job.workflow_sha }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
           GH_TOKEN: ${{ github.token }}
-        run: bash .pre-check-tools/.github/frontend-pre-check/report.sh publish
+        run: bash .pre-check-tools/pre-check/report.sh publish

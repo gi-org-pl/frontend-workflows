@@ -1,7 +1,7 @@
 # Front-end pre-check
 
 Pre-check is an AI review that every front-end pull request gets before a person looks at it. It is a step of the
-[code review](../../process/CODE_REVIEW.md) process, not a replacement for it, and it is **advisory**: the reviewer
+[code review][code-review] process, not a replacement for it, and it is **advisory**: the reviewer
 can be misled by the content it reviews or simply miss things, so it never replaces a person's approval. Back end is
 out of scope.
 
@@ -25,7 +25,7 @@ and accepts the pull request or rejects it with suggestions.
 2. **Pre-check.** When the pull request is opened, updated, reopened, marked ready for review, or its description or
    base branch changes, the reviewer runs:
    - one comment headed **Pre-check** holds the outcome, **every finding with its full explanation**, labelled with
-     [conventional comments](../../process/CODE_REVIEW.md#conventional-comments) (`[blocking]` or `[non-blocking]`),
+     [conventional comments][conventional-comments] (`[blocking]` or `[non-blocking]`),
      and the technical decisions; findings on lines of the diff are also posted as inline comments, for convenience,
    - one label is set (see [Outcomes](#outcomes)),
    - the check `frontend-pre-check / review` passes only for "clean" and "advisory".
@@ -38,7 +38,7 @@ and accepts the pull request or rejects it with suggestions.
 ## Outcomes
 
 There is one set of outcome states, defined once in
-[`contracts.py`](../../../.github/frontend-pre-check/contracts.py) and used by every component.
+[`contracts.py`](../../pre-check/contracts.py) and used by every component.
 `frontend-pre-check / review` runs for every event and is the check to require; its exit status follows the table.
 
 | State | When | Label | `frontend-pre-check / review` |
@@ -65,7 +65,7 @@ A pull request **needs a person** when any of these holds - each is decided by a
 - the reviewer returned more findings than allowed.
 
 The labels keep the short `pre-check:` prefix; they are the one exception to "we do not use GitHub labels for pull
-requests" in [code review](../../process/CODE_REVIEW.md).
+requests" in [code review][code-review].
 
 **"Clean" is not "reviewed".** Text in the pull request cannot make the reviewer act, but it can make it under-report
 and return a falsely clean result. "Clean" and "advisory" are therefore neither "safe" nor an approval, and a green
@@ -89,7 +89,8 @@ The reviewer is isolated from the agent that wrote the code and from GitHub. It 
   [Design comparison](#design-comparison)),
 - documents in `gi-org-pl/product` that the issues link, **only from its default branch**, pinned to the commit it
   pointed at during the run (a link to another branch or a tag is skipped),
-- these standards (`gi-tech-standards`) at the commit of the workflow,
+- the organisation's standards, [gi-tech-standards](https://github.com/gi-org-pl/gi-tech-standards), at the commit
+  pinned by the `standards_ref` input (a constant in the workflow, bumped with a release of this repository),
 - the repository's own guide - `AGENTS.md` and `CLAUDE.md` files at any depth, `README.md`, `docs/` and the pull
   request template - **as they are on the base branch**, so that a pull request cannot change the rules it is checked
   against.
@@ -105,7 +106,8 @@ The full checklist is in [the reviewer instructions](REVIEWER.md). In short:
 
 - **bugs** typical for our stack - logic errors, unvalidated or unhandled data, async races, effect and hook mistakes,
   hydration mismatches, missing translations, accessibility that breaks use, security,
-- **compliance** with written rules only - the repository's `AGENTS.md` and [front-end standards](../INDEX.md),
+- **compliance** with written rules only - the repository's `AGENTS.md` and [front-end
+  standards](https://github.com/gi-org-pl/gi-tech-standards/blob/main/docs/frontend/INDEX.md),
   each finding naming the rule,
 - **design and documentation** - the issue's acceptance criteria, linked documents, the design comparison when the
   issue links Figma, documentation updated with the change, a pull request description that matches the diff,
@@ -160,8 +162,8 @@ URLs with passwords, authorization headers, common provider key shapes); a hit w
 heuristic backstop, **not data-loss prevention**: a credential in a pull request has to be rotated by a person in any
 case.
 
-The tests in [`.github/frontend-pre-check/tests/`](../../../.github/frontend-pre-check/tests/) lock these rules in; the
-`frontend-pre-check-tests` workflow runs them on every pull request that touches the pre-check.
+The tests in [`pre-check/tests/`](../../pre-check/tests/) lock these rules in; the `ci` workflow of this repository
+runs them on every pull request.
 
 ## When it does not review
 
@@ -196,6 +198,7 @@ on that subscription. The workflow keeps one review small:
 | Files left out of the diff | the exclusion policy in `context/diff.py`: tests (`*.test.ts(x)`, `*.spec.ts(x)`, `__tests__/`, top-level `e2e/`), test helpers (`__mocks__/`, `*.fixture(s).ts`, `setupTests.ts`, `src/utils/vitest/`), snapshots, lock files (which still need a person). A caller can choose a subset, never add to it | `exclude_paths` |
 | Review timeout | 20 minutes (at most 50; the job stops at 60) | `timeout_minutes` |
 | Runs per pull request | 8 in the last hour, counted over every page of runs of this pull request | `max_runs_per_hour` |
+| Standards checked against | gi-tech-standards at a commit fixed in the workflow; a caller may pin another full SHA | `standards_ref` |
 
 A burst of events on one pull request is debounced: an edit waits 30 seconds, and a newer event cancels the waiting
 gate and a review that is still running. Publication is serialised per pull request across runs, and every write is
@@ -209,8 +212,8 @@ the check fails; re-run it later.
 ## Setting it up in a repository
 
 The workflow is reusable: it lives here, in
-[`.github/workflows/frontend-pre-check.yml`](../../../.github/workflows/frontend-pre-check.yml), with its scripts in
-[`.github/frontend-pre-check/`](../../../.github/frontend-pre-check/). A repository calls it with a short workflow:
+[`.github/workflows/frontend-pre-check.yml`](../../.github/workflows/frontend-pre-check.yml), with its scripts in
+[`pre-check/`](../../pre-check/). A repository calls it with a short workflow:
 
 ```yaml
 name: frontend-pre-check
@@ -232,7 +235,7 @@ jobs:
       issues: write
       actions: read
       checks: read
-    uses: gi-org-pl/gi-tech-standards/.github/workflows/frontend-pre-check.yml@<full commit SHA> # main on <date>
+    uses: gi-org-pl/frontend-workflows/.github/workflows/frontend-pre-check.yml@<full commit SHA> # v1.0.0
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
@@ -259,7 +262,8 @@ The pre-check never approves. Its label and its check inform; a person accepts:
 
 The options, from the simplest:
 
-1. **Required status check** `frontend-pre-check / review` plus the existing human approval (recommended): nothing merges with
+1. **Required status check** `frontend-pre-check / review` plus the existing human approval (recommended): nothing
+   merges with
    unresolved blocking findings, with changes the pre-check cannot judge, or without a pre-check at all, and a person
    still accepts the pull request. Pull requests that need a person, and bot and fork pull requests, then need someone
    with the right to bypass the ruleset.
@@ -282,8 +286,9 @@ Three kinds of actors matter:
    file names are attacker-influenced. They can make the reviewer report wrongly - prompt injection is assumed to work
    sometimes - but they cannot make it act: it has a read-only token, read tools confined to the workspace, no shell,
    no web and nothing to post with, and the verdict does not rest on its word alone.
-3. **Whoever can push to `main` of gi-tech-standards.** A caller that pins a commit SHA runs only what was pinned; one
-   that uses a branch runs whatever lands there.
+3. **Whoever can push to `main` of frontend-workflows or gi-tech-standards.** A caller that pins a commit SHA of this
+   repository runs only what was pinned, and that commit pins the standards it reads (`standards_ref`); a caller that
+   uses a branch runs whatever lands there.
 
 ### What the workflow does
 
@@ -296,8 +301,9 @@ Three kinds of actors matter:
   exists; `disableAllHooks`, user settings only, the default permission mode. On top: `Read` is allowed for `./**`
   only, and the runner's `/proc`, temp, tool and home configuration paths and `.git/` are denied. The tools the session
   really had are read from its log and shown in the run summary.
-- **Nothing from the pull request runs.** The scripts and instructions come from gi-tech-standards at
-  `job.workflow_sha`. After the checkout every symbolic link is deleted, and so are `CLAUDE.md`, `CLAUDE.local.md`,
+- **Nothing from the pull request runs.** The scripts and instructions come from this repository at
+  `job.workflow_sha`, the standards from gi-tech-standards at `standards_ref`, both full commit SHAs. After the checkout
+  every symbolic link is deleted, and so are `CLAUDE.md`, `CLAUDE.local.md`,
   `AGENTS.md`, `.claude/`, `.mcp.json` and `.claude.json` at any depth.
 - **Context comes from the API only, never from the checkout**, with paths and refs validated (no `.` or `..`
   segments, a plain character set, `realpath` under the target directory), issues limited to this organisation and its
@@ -342,9 +348,11 @@ These are not code. Without them a writer can bypass the pre-check, or read the 
    pushed" and "Require approval of the most recent reviewable push". The pre-check never replaces this.
 2. **Protect CI configuration.** Add `.github/CODEOWNERS` with `/.github/ @gi-org-pl/admins` to each repository, and
    turn on "Require review from Code Owners" in the same ruleset, so a change to the caller needs an admin.
-3. **Protect gi-tech-standards.** Its `main` already requires a code owner's review for `.github/` (owned by the
-   admins) and squash merges only; keep it so, and add "Require approval of the most recent reviewable push" there too.
-   Pin callers to a commit SHA and bump them in reviewed pull requests.
+3. **Protect frontend-workflows.** Repository → Settings → Rules → Rulesets: on `main`, "Require a pull request before
+   merging" with a code owner's review and "Require approval of the most recent reviewable push", "Block force
+   pushes" and "Restrict deletions"; a tag ruleset for `v*` that only the code owners may create, update or delete.
+   Keep `main` of gi-tech-standards protected as it is. Pin callers to a commit SHA and bump them in reviewed pull
+   requests.
 4. **Limit the secret.** Organisation → Settings → Secrets and variables → Actions → `CLAUDE_CODE_OAUTH_TOKEN` →
    Repository access: "Selected repositories", only the repositories that run the pre-check. Rotate the token
    (`claude setup-token`) when someone with write access leaves.
@@ -358,7 +366,7 @@ These are not code. Without them a writer can bypass the pre-check, or read the 
    contributors": "Require approval for all external contributors". Fork runs never get secrets on public
    repositories; this also stops them from using runner time unasked.
 7. **Allowed actions.** Organisation → Settings → Actions → General → Policies: allow `anthropics/claude-code-action`,
-   `actions/checkout` and reusable workflows from `gi-org-pl/gi-tech-standards`.
+   `actions/checkout` and reusable workflows from `gi-org-pl/frontend-workflows`.
 8. **Require the right check, read the right signal.** If the check is required: Repository → Settings → Rules →
    Rulesets → "Require status checks to pass" → `frontend-pre-check / review` from GitHub Actions, and decide who may
    bypass it (bot, fork and "needs a person" pull requests depend on that). Automation that depends on the pre-check
@@ -382,27 +390,29 @@ The workflow file only orchestrates jobs, permissions and dependencies; the logi
 that hand each other validated data:
 
 ```text
-.github/
-  workflows/
-    frontend-pre-check.yml        the reusable workflow: three jobs, nothing else
-    frontend-pre-check-tests.yml  runs the tests on pull requests that touch the pre-check
-  frontend-pre-check/
-    contracts.py                  the outcome states, labels and exit codes; a small JSON-schema validator
-    gate.py                       input checks and the decision run / queue / skip / block
-    report.sh                     publishing: GitHub I/O only, every decision comes from the components below
-    context/
-      collect.py                  collects the context from the API, writes scope.json
-      github.py                   the only way to GitHub (gh api); replaced by fixtures in tests
-      diff.py                     classifies the changed files and builds diff.patch
-      documents.py                issues, linked documents, the repository guide, quoted data
-      clean-checkout.sh           removes links and agent configuration from the checkout
-      scope.schema.json           the contract between context/ and review/
-    review/
-      schema.json                 the reviewer's output, passed to the CLI as --json-schema
-      evidence.py                 the measured reading of the diff, the tool set and usage, from the reviewer's log
-      evaluate.py                 the authoritative outcome, from the complete validated result and scope
-      render.py                   presentation only: the comment and the inline comments
-    tests/                        test_context, test_evaluate, test_render, test_gate, test_evidence, test_report.sh
+.github/workflows/
+  frontend-pre-check.yml        the reusable workflow: three jobs, nothing else
+  ci.yml                        actionlint, shellcheck, markdownlint and the tests, on every pull request
+pre-check/
+  contracts.py                  the outcome states, labels and exit codes; a small JSON-schema validator
+  gate.py                       input checks and the decision run / queue / skip / block
+  report.sh                     publishing: GitHub I/O only, every decision comes from the components below
+  context/
+    collect.py                  collects the context from the API, writes scope.json
+    github.py                   the only way to GitHub (gh api); replaced by fixtures in tests
+    diff.py                     classifies the changed files and builds diff.patch
+    documents.py                issues, linked documents, the repository guide, quoted data
+    clean-checkout.sh           removes links and agent configuration from the checkout
+    scope.schema.json           the contract between context/ and review/
+  review/
+    schema.json                 the reviewer's output, passed to the CLI as --json-schema
+    evidence.py                 the measured reading of the diff, the tool set and usage, from the reviewer's log
+    evaluate.py                 the authoritative outcome, from the complete validated result and scope
+    render.py                   presentation only: the comment and the inline comments
+  tests/                        test_context, test_evaluate, test_render, test_gate, test_evidence, test_report.sh
+docs/pre-check/
+  PROCESS.md                    this document
+  REVIEWER.md                   the reviewer's instructions, used word for word as its prompt
 ```
 
 The data passed between them, and where it is checked:
@@ -419,6 +429,9 @@ The data passed between them, and where it is checked:
 
 | File | What it is |
 | --- | --- |
-| [`docs/frontend/pre-check/REVIEWER.md`](REVIEWER.md) | The reviewer's instructions and checklist, used word for word as its prompt |
-| [`.github/workflows/frontend-pre-check.yml`](../../../.github/workflows/frontend-pre-check.yml) | The reusable workflow (`workflow_call`) |
-| [`.github/frontend-pre-check/`](../../../.github/frontend-pre-check/) | The components listed in [How it is built](#how-it-is-built) |
+| [`docs/pre-check/REVIEWER.md`](REVIEWER.md) | The reviewer's instructions and checklist, used word for word as its prompt |
+| [`.github/workflows/frontend-pre-check.yml`](../../.github/workflows/frontend-pre-check.yml) | The reusable workflow (`workflow_call`) |
+| [`pre-check/`](../../pre-check/) | The components listed in [How it is built](#how-it-is-built) |
+
+[code-review]: https://github.com/gi-org-pl/gi-tech-standards/blob/main/docs/process/CODE_REVIEW.md
+[conventional-comments]: https://github.com/gi-org-pl/gi-tech-standards/blob/main/docs/process/CODE_REVIEW.md#conventional-comments
