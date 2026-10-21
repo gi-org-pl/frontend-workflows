@@ -81,6 +81,13 @@ class ProtectedPathTest(unittest.TestCase):
                      "Dockerfile", ".husky/pre-commit", "tsconfig.json"]:
             self.assertIn(name, human(run([f(name)])), name)
 
+    def test_nested_configuration_in_a_monorepo(self):
+        for name in ["packages/app/.storybook/main.ts", "apps/web/biome.json", "apps/web/.yarnrc.yml",
+                     "apps/web/.husky/pre-push", "apps/web/vercel.json", "apps/web/netlify.toml",
+                     "apps/web/docker-compose.yml", "apps/web/compose.yaml", "apps/web/.releaserc.json"]:
+            self.assertIn(name, human(run([f(name)])), name)
+        self.assertEqual(human(run([f("src/stories/Button.stories.tsx")])), set())
+
     def test_renamed_protected_files(self):
         result = run([f("docs/old-owners.txt", status="renamed", old=".github/CODEOWNERS")])
         self.assertIn(".github/CODEOWNERS", human(result))

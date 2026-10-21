@@ -71,12 +71,20 @@ published_event_time() {
     --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\"))) | .body | match(\"$STATE event_time=([0-9TZ:-]{20})\").captures[0].string" | sed -n 1p
 }
 
+# Ends the run from inside the guard. Once this run has set its label, the
+# label is taken off first: whatever ended the run (a push, a newer event, a
+# switch to draft) means the label no longer describes the pull request.
+leave() {
+  if [ "${LABEL_SET:-}" = true ]; then remove_labels; fi
+  exit "$1"
+}
+
 # A newer event changed what this run reviewed: it publishes nothing and
 # fails, so that it can never leave a stale result or a stale green check
 # behind; the run of the newer event publishes.
 superseded() {
   echo "::warning title=Pre-check::Superseded: $1 The run of the newer event publishes; this one changes nothing and does not pass."
-  exit 1
+  leave 1
 }
 
 # The freshness guard, called right before every write: the run publishes
@@ -90,23 +98,23 @@ guard() {
   pr=$(mktemp)
   if ! gh api "repos/$REPO/pulls/$PR_NUMBER" > "$pr"; then
     echo "::error title=Pre-check::Could not read the pull request; nothing more is published."
-    exit 1
+    leave 1
   fi
   read -r current base draft < <(jq -r '"\(.head.sha) \(.base.sha) \(.draft)"' "$pr")
   if [ "$current" != "$HEAD_SHA" ]; then
     echo "The pull request moved on from ${HEAD_SHA:0:7} to ${current:0:7}; nothing more is published by this run."
-    exit 0
+    leave 0
   fi
   # A review must not publish into a pull request that went back to draft
   # meanwhile: the draft run withdrew the result, and this one does not pass.
   if [ "${PUBLISHING_RESULT:-}" = true ] && [ "$draft" = true ]; then
     echo "The pull request is a draft now; this result is not published."
-    exit 1
+    leave 1
   fi
   if [ -n "$EVENT_TIME" ]; then
     if ! recorded=$(published_event_time); then
       echo "::error title=Pre-check::Could not read the Pre-check comment; nothing more is published."
-      exit 1
+      leave 1
     fi
     if [ -n "$recorded" ] && [[ "$recorded" > "$EVENT_TIME" ]]; then
       superseded "the Pre-check comment already answers an event of $recorded, newer than this run's $EVENT_TIME."
@@ -315,7 +323,9 @@ guard || { echo "::error title=Pre-check::The base branch moved during publicati
 upsert_comment "$out/comment.md"
 guard || { echo "::error title=Pre-check::The base branch moved during publication; re-run the job."; exit 1; }
 set_label "$outcome"
-# A push between the last guard and the label: take the label off again.
+LABEL_SET=true
+# A push or a newer event between the last guard and the label: the label
+# comes off again (leave() does it when the guard ends the run).
 guard || { remove_labels; exit 1; }
 
 # Usage, as far as the run reports it; only numbers, a fixed word and tool names.

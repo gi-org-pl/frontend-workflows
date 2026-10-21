@@ -13,7 +13,10 @@ cat > "$T/bin/gh" << 'EOF'
 echo "gh $*" >> "$FAKE_LOG"
 args="$*"
 case "$args" in
-  "api repos/gi-org-pl/x/pulls/1") jq -n --arg h "$FAKE_HEAD" --arg b "$FAKE_BASE" --arg body "${FAKE_BODY:-}" \
+  "api repos/gi-org-pl/x/pulls/1")
+    head=$FAKE_HEAD
+    if [ -n "${FAKE_HEAD_AFTER_LABEL:-}" ] && grep -q "issues/1/labels -f" "$FAKE_LOG"; then head=$FAKE_HEAD_AFTER_LABEL; fi
+    jq -n --arg h "$head" --arg b "$FAKE_BASE" --arg body "${FAKE_BODY:-}" \
       --argjson d "${FAKE_DRAFT:-false}" '{head: {sha: $h}, base: {sha: $b}, draft: $d, body: $body}' ;;
   *"issues/1/comments?per_page=100"*"event_time"*) echo "${FAKE_PUBLISHED_TIME:-}" ;;
   *"pulls/"*" --jq .head.sha"*) echo "$FAKE_HEAD" ;;
@@ -102,6 +105,10 @@ check "a moved head publishes nothing" 0 env FAKE_HEAD=ccccccccccccccccccccccccc
 if grep -q "issues/1/comments -F" "$FAKE_LOG"; then echo "FAIL moved head posted"; failures=$((failures + 1)); fi
 
 mk_result '[]'
+mk_result '[]'
+check "a push right after the label: the label comes off again" 0 env FAKE_HEAD_AFTER_LABEL=cccccccccccccccccccccccccccccccccccccccc bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
+[ "$(grep "labels" "$FAKE_LOG" | tail -1 | grep -c -- "-X DELETE")" = 1 ] || { echo "FAIL stale label left after a push"; failures=$((failures + 1)); }
+
 check "a moved base fails and does not publish the result" 1 env FAKE_BASE=dddddddddddddddddddddddddddddddddddddddd bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
 posted_has "base branch moved" || { echo "FAIL base moved comment"; failures=$((failures + 1)); }
 

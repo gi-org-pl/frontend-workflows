@@ -59,7 +59,8 @@ A pull request **needs a person** when any of these holds - each is decided by a
 - a changed path, old or new, is CI (`.github/workflows/`, `.github/actions/`), code owners (any supported
   `CODEOWNERS` location), a dependency manifest or lock file (`package.json`, npm, Yarn, pnpm, Bun), package-manager
   configuration, plugins or hooks, git hooks, build configuration (`*.config.*`, `tsconfig*.json`, `biome.json`,
-  `.storybook/`, `scripts/`), container or deployment descriptors or release configuration,
+  `.storybook/`, `scripts/`), container or deployment descriptors or release configuration - in a monorepo also below
+  the root, except `scripts/`, which counts at the root only,
 - a source of context was cut at its size limit, or an `AGENTS.md` or `CLAUDE.md` that applies to a changed file could
   not be given to the reviewer (a path outside the plain character set, or a failed read),
 - the reviewer did not read every line of the diff (measured from its own log),
