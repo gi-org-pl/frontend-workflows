@@ -198,7 +198,7 @@ on that subscription. The workflow keeps one review small:
 | Files left out of the diff | the exclusion policy in `context/diff.py`: tests (`*.test.ts(x)`, `*.spec.ts(x)`, `__tests__/`, top-level `e2e/`), test helpers (`__mocks__/`, `*.fixture(s).ts`, `setupTests.ts`, `src/utils/vitest/`), snapshots, lock files (which still need a person). A caller can choose a subset, never add to it | `exclude_paths` |
 | Review timeout | 20 minutes (at most 50; the job stops at 60) | `timeout_minutes` |
 | Runs per pull request | 8 in the last hour, counted over every page of runs of this pull request | `max_runs_per_hour` |
-| Standards checked against | gi-tech-standards at a commit fixed in the workflow; a caller may pin another full SHA | `standards_ref` |
+| Standards checked against | gi-tech-standards at a commit fixed in the workflow; a caller may pin another full SHA. The repository is public, so the caller's token reads it; were it private, the checkout would need a read token and fail without one | `standards_ref` |
 
 A burst of events on one pull request is debounced: an edit waits 30 seconds, and a newer event cancels the waiting
 gate and a review that is still running. Publication is serialised per pull request across runs, and every write is

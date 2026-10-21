@@ -210,6 +210,11 @@ jobs:
           path: .pre-check-context/standards
           persist-credentials: false
 
+      # The standards are trusted, but a link in them would reach outside the
+      # workspace all the same; no link survives in what the reviewer reads.
+      - name: Remove links from the standards checkout
+        run: find "$CTX/standards" -path "$CTX/standards/.git" -prune -o -type l -print -exec rm -f {} +
+
       - name: Collect the context
         id: context
         env:

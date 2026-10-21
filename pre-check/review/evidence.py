@@ -13,34 +13,53 @@ import os
 import re
 import sys
 
-DEFAULT_LIMIT = 2000  # lines the Read tool returns without a limit
+# The Read tool numbers every line it returns: "    12\t..." (or "12→...").
+NUMBERED_LINE = re.compile(r"^\s*(\d+)[\t→]", re.MULTILINE)
+
+
+def _result_text(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(part.get("text", "") for part in content if isinstance(part, dict))
+    return ""
 
 
 def coverage(messages, diff_path, lines):
-    """full when the Read calls on DIFF_PATH cover lines 1..LINES."""
+    """full when successful Read results on DIFF_PATH returned lines 1..LINES.
+
+    A Read call counts only through its result: the result must not be an
+    error, and only the line numbers it actually shows count - a failed or a
+    short read never credits the range it asked for."""
     if lines == 0:
         return "full"
-    ranges = []
+    reads = {}
     for message in messages:
         if message.get("type") != "assistant":
             continue
         for block in (message.get("message") or {}).get("content") or []:
-            if not isinstance(block, dict) or block.get("type") != "tool_use" or block.get("name") != "Read":
+            if (isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Read"
+                    and (block.get("input") or {}).get("file_path") == diff_path and block.get("id")):
+                reads[block["id"]] = True
+    ranges = []
+    for message in messages:
+        if message.get("type") != "user":
+            continue
+        for block in (message.get("message") or {}).get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result" or block.get("tool_use_id") not in reads:
                 continue
-            data = block.get("input") or {}
-            if data.get("file_path") != diff_path:
+            if block.get("is_error"):
                 continue
-            start = data.get("offset") or 1
-            limit = data.get("limit") or DEFAULT_LIMIT
-            if isinstance(start, int) and isinstance(limit, int) and start >= 1 and limit >= 1:
-                ranges.append((start, start + limit - 1))
+            numbers = [int(n) for n in NUMBERED_LINE.findall(_result_text(block.get("content")))]
+            if numbers:
+                ranges.append((min(numbers), max(numbers)))
     if not ranges:
         return "none"
     end = 0
-    for start, stop in sorted(ranges):
-        if start > end + 1:
+    for first, last in sorted(ranges):
+        if first > end + 1:
             return "partial"
-        end = max(end, stop)
+        end = max(end, last)
     return "full" if end >= lines else "partial"
 
 
