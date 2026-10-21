@@ -336,6 +336,8 @@ jobs:
           COVERAGE: ${{ needs.analyse.outputs.coverage }}
           TOOLS_USED: ${{ needs.analyse.outputs.tools }}
           MERGE_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          MERGE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MERGE_BASE_REF: ${{ github.event.merge_group.base_ref }}
           CHECK_RUN_ID: ${{ job.check_run_id }}
           WORKFLOW_SHA: ${{ job.workflow_sha }}
           GH_TOKEN: ${{ github.token }}

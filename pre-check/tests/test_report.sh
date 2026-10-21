@@ -18,6 +18,7 @@ case "$args" in
   *"issues/1/comments?per_page=100"*"event_time"*) echo "${FAKE_PUBLISHED_TIME:-}" ;;
   *"pulls/"*" --jq .head.sha"*) echo "$FAKE_HEAD" ;;
   *"check-runs/"*" --jq .name"*) echo "frontend-pre-check / review" ;;
+  *"api graphql"*"mergeQueue"*) echo "${FAKE_QUEUE:-}" ;;
   *"commits/"*"/check-runs"*) echo "$FAKE_CHECK" ;;
   *"--input -"*) cat > /dev/null ;;
 esac
@@ -70,9 +71,19 @@ report() { RESULT_FILE="$T/result.json" SCOPE_FILE="$T/scope.json" COVERAGE=full
 check "a skip fails the required check" 1 env SKIP_REASON="the pull request comes from a fork." bash "$HERE/report.sh" notchecked
 posted_has "not pre-checked" || { echo "FAIL skip comment"; failures=$((failures + 1)); }
 
-check "merge queue: the pull request passed on its head" 0 env MERGE_HEAD_REF=refs/heads/gh-readonly-queue/main/pr-1-abc CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
-check "merge queue: no passing check" 1 env FAKE_CHECK=failure MERGE_HEAD_REF=refs/heads/gh-readonly-queue/main/pr-1-abc CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
+entry() { echo "{\"position\":$1,\"headCommit\":{\"oid\":\"$2\"},\"pullRequest\":{\"number\":$3}}"; }
+queue_of() { echo "{\"data\":{\"repository\":{\"mergeQueue\":{\"entries\":{\"nodes\":[$1]}}}}}"; }
+export MERGE_BASE_REF=refs/heads/main MERGE_HEAD_SHA=abc2 MERGE_HEAD_REF=refs/heads/gh-readonly-queue/main/pr-2-abc2
+export FAKE_QUEUE
+FAKE_QUEUE=$(queue_of "$(entry 1 abc1 1),$(entry 2 abc2 2),$(entry 3 abc3 3)")
+check "merge queue: every pull request of the group passed on its head" 0 env CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
+if ! grep -q "pulls/1 " "$FAKE_LOG" || ! grep -q "pulls/2 " "$FAKE_LOG"; then echo "FAIL the entry ahead was not checked"; failures=$((failures + 1)); fi
+if grep -q "pulls/3 " "$FAKE_LOG"; then echo "FAIL an entry behind was checked"; failures=$((failures + 1)); fi
+check "merge queue: no passing check" 1 env FAKE_CHECK=failure CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
+check "merge queue: the entry is not in the queue" 1 env MERGE_HEAD_SHA=fff CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
+check "merge queue: the branch names another pull request" 1 env MERGE_HEAD_REF=refs/heads/gh-readonly-queue/main/pr-3-abc2 CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
 check "merge queue: no pull request in the ref" 1 env MERGE_HEAD_REF=refs/heads/other CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
+check "merge queue: the queue cannot be read" 1 env FAKE_FAIL="api graphql" CHECK_RUN_ID=5 bash "$HERE/report.sh" queue
 
 mk_result '[]'
 check "clean passes" 0 report
@@ -141,7 +152,7 @@ check "publish: a failed gate fails" 1 env GATE=failure bash "$HERE/report.sh" p
 check "publish: a skip fails" 1 env GATE=success VERDICT=skip GATE_REASON="the pull request is a draft." bash "$HERE/report.sh" publish
 check "publish: a blocked run fails" 1 env GATE=success VERDICT=block GATE_REASON="limit." bash "$HERE/report.sh" publish
 check "publish: an unknown verdict fails" 1 env GATE=success VERDICT=other bash "$HERE/report.sh" publish
-check "publish: a merge queue entry dispatches" 0 env GATE=success VERDICT=queue MERGE_HEAD_REF=refs/heads/gh-readonly-queue/main/pr-1-abc CHECK_RUN_ID=5 bash "$HERE/report.sh" publish
+check "publish: a merge queue entry dispatches" 0 env GATE=success VERDICT=queue CHECK_RUN_ID=5 bash "$HERE/report.sh" publish
 check "publish: a superseded analysis does not pass" 1 env GATE=success VERDICT=run ANALYSE=cancelled bash "$HERE/report.sh" publish
 check "publish: a failed analysis fails" 1 env GATE=success VERDICT=run ANALYSE=failure ABORT=failed bash "$HERE/report.sh" publish
 mkdir -p "$T/artifact" "$T/empty"

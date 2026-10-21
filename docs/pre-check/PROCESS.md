@@ -179,9 +179,11 @@ Pre-check comment saying why):
 - the pull request had more than `max_runs_per_hour` runs in the last hour.
 
 For a **merge queue** entry (`merge_group`) the review job does not run the reviewer again: it passes when every pull
-request named in the entry has a successful `frontend-pre-check / review` check on its current head, and fails
-otherwise. The merged result - the pull request on top of the latest base - is not reviewed; that is what the merge
-queue's other checks are for.
+request the entry contains has a successful `frontend-pre-check / review` check on its current head, and fails
+otherwise. The branch of a merge group names only its last pull request, so the members come from the queue itself
+(`review/merge_group.py`): the entry whose head commit is the group's head, and every entry ahead of it. If the queue
+cannot be read, or the entry is not in it, the check fails. The merged result - the pull request on top of the latest
+base - is not reviewed; that is what the merge queue's other checks are for.
 
 If the gate fails, the review job fails. A run whose commit is no longer the head of the pull request publishes
 nothing; a run whose base moved during the review fails with "not current". A run overtaken by a newer event on the
@@ -416,6 +418,7 @@ pre-check/
   review/
     schema.json                 the reviewer's output, passed to the CLI as --json-schema
     evidence.py                 the measured reading of the diff, the tool set and usage, from the reviewer's log
+    merge_group.py              the pull requests a merge queue entry contains
     package.py                  redacts the result and hands it, with the scope, to the review job as an artifact
     evaluate.py                 the authoritative outcome, from the complete validated result and scope
     render.py                   presentation only: the comment and the inline comments

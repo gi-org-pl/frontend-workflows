@@ -16,14 +16,17 @@
 #   notchecked  outcome "skipped" (SKIP_REASON): labels off, the comment says
 #               so, exit 1
 #   queue       merge_group: outcome "queued" if every pull request in the entry
-#               passed this check on its current head (MERGE_HEAD_REF,
+#               - the one its branch names and every entry ahead of it in
+#               the queue (review/merge_group.py) - passed this check on its
+#               current head (MERGE_HEAD_REF, MERGE_HEAD_SHA, MERGE_BASE_REF,
 #               CHECK_RUN_ID), otherwise "human"
 #   report      evaluate, render and publish RESULT_FILE with SCOPE_FILE
 #   error       outcome "invalid" (REASON is a fixed code), exit 1
 #
 # Environment: REPO, PR_NUMBER, HEAD_SHA, BASE_SHA, GH_TOKEN, RUN_URL, MODEL,
 # WORKFLOW_SHA, RESULT_FILE, SCOPE_FILE, COVERAGE, USAGE_JSON, TOOLS_USED,
-# REASON, SKIP_REASON, MERGE_HEAD_REF, CHECK_RUN_ID, FINGERPRINT (the gate's,
+# REASON, SKIP_REASON, MERGE_HEAD_REF, MERGE_HEAD_SHA, MERGE_BASE_REF,
+# CHECK_RUN_ID, FINGERPRINT (the gate's,
 # see contracts.fingerprint), EVENT_TIME (updated_at of the pull request in
 # the event that started the run).
 set -euo pipefail
@@ -187,14 +190,25 @@ notchecked)
   finish skipped
   ;;
 queue)
-  : "${MERGE_HEAD_REF:?}" "${CHECK_RUN_ID:?}"
+  : "${MERGE_HEAD_REF:?}" "${MERGE_HEAD_SHA:?}" "${MERGE_BASE_REF:?}" "${CHECK_RUN_ID:?}"
   # The name of this very check, e.g. "frontend-pre-check / review".
   name=$(gh api "repos/$REPO/check-runs/$CHECK_RUN_ID" --jq .name)
-  mapfile -t prs < <(grep -oE 'pr-[0-9]+-' <<< "$MERGE_HEAD_REF" | grep -oE '[0-9]+' | sort -u)
-  if (( ${#prs[@]} == 0 )); then
-    echo "::error title=Pre-check::The merge queue entry names no pull request."
+  # The branch names only the last pull request of the group; the queue gives
+  # the entries ahead of it, which the group carries too.
+  queue=$(mktemp)
+  # shellcheck disable=SC2016 # GraphQL variables, not shell ones
+  if ! gh api graphql -f owner="${REPO%%/*}" -f name="${REPO#*/}" -f branch="${MERGE_BASE_REF#refs/heads/}" -f query='
+      query($owner: String!, $name: String!, $branch: String!) {
+        repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { entries(first: 100) {
+          nodes { position headCommit { oid } pullRequest { number } } } } } }' > "$queue"; then
+    echo "::error title=Pre-check::Could not read the merge queue."
     finish human
   fi
+  if ! members=$(python3 "$HERE/review/merge_group.py" "$queue" "$MERGE_HEAD_SHA" "$MERGE_HEAD_REF"); then
+    echo "::error title=Pre-check::Could not establish which pull requests this merge queue entry contains."
+    finish human
+  fi
+  mapfile -t prs <<< "$members"
   encoded=$(jq -rn --arg name "$name" '$name | @uri')
   for pr in "${prs[@]}"; do
     head=$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha)
