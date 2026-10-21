@@ -92,7 +92,7 @@ def human_reasons(scope, findings, coverage):
     if any(not p["path"].startswith((".github/workflows/", ".github/actions/")) for p in scope["human_paths"]):
         reasons.append("it changes code owners, dependencies or build configuration")
     if scope["cut_sources"]:
-        reasons.append("some linked context was cut at its size limit")
+        reasons.append("some context was cut at its size limit or could not be read")
     if scope["reviewed"] and coverage != "full":
         reasons.append("the reviewer did not read the whole diff")
     if len(findings) > MAX_FINDINGS:

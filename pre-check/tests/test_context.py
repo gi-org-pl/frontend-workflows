@@ -201,6 +201,43 @@ class DocumentsTest(unittest.TestCase):
         self.assertIn("żż", text)
 
 
+class GuideTest(unittest.TestCase):
+    """A scoped guide that applies to a changed file and cannot be given to the
+    reviewer must make the result need a person, never pass silently."""
+
+    def guide(self, paths, changed, raws):
+        tree = {"repos/gi-org-pl/app/git/trees/b?recursive=1": {"tree": [{"path": p, "type": "blob"} for p in paths]}}
+        ctx = documents.Context("n")
+        with tempfile.TemporaryDirectory() as tmp:
+            read = documents.collect_guide(FakeGitHub(tree, raw=raws), ctx, "gi-org-pl/app", "b", tmp, changed)
+        return read, ctx
+
+    def test_unsafe_path_of_an_applicable_guide_is_cut(self):
+        _, ctx = self.guide(["my app/AGENTS.md"], ["my app/src/a.ts"], {})
+        self.assertEqual(len(ctx.cut_sources), 1)
+        self.assertNotIn("my app", ctx.cut_sources[0])
+
+    def test_unsafe_path_of_a_guide_elsewhere_is_ignored(self):
+        _, ctx = self.guide(["my app/AGENTS.md"], ["src/a.ts"], {})
+        self.assertEqual(ctx.cut_sources, [])
+
+    def test_failed_read_of_an_applicable_guide_is_cut(self):
+        read, ctx = self.guide(["AGENTS.md", "src/CLAUDE.md"], ["src/a.ts"],
+                               {"repos/gi-org-pl/app/contents/AGENTS.md?ref=b": GitHubError("502")})
+        self.assertEqual(read, [])
+        self.assertEqual(ctx.cut_sources, ["repository guide AGENTS.md (it could not be read)",
+                                           "repository guide src/CLAUDE.md (it could not be read)"])
+
+    def test_failed_read_elsewhere_is_a_note(self):
+        read, ctx = self.guide(["other/AGENTS.md", "README.md"], ["src/a.ts"], {"repos/gi-org-pl/app/contents/README.md?ref=b": "readme"})
+        self.assertEqual((read, ctx.cut_sources), (["README.md"], []))
+        self.assertEqual(len(ctx.notes), 1)
+
+    def test_readable_guides_are_given(self):
+        read, ctx = self.guide(["AGENTS.md", "src/CLAUDE.md"], ["src/a.ts"], {"repos/gi-org-pl/app/contents/*": "rules"})
+        self.assertEqual((read, ctx.cut_sources), (["AGENTS.md", "src/CLAUDE.md"], []))
+
+
 class CollectTest(unittest.TestCase):
     def env(self, tmp, **extra):
         standards = os.path.join(tmp, "standards")

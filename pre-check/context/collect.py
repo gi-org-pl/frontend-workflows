@@ -102,7 +102,8 @@ def collect(gh, env):
         fh.write("".join(url + "\n" for url in figma))
     doc_repos = [r for r in env.get("DOC_REPOS", "").splitlines() if r.strip()]
     docs = documents.collect_documents(gh, ctx, links, doc_repos, owner, os.path.join(ctx_dir, "docs"))
-    guide = documents.collect_guide(gh, ctx, repo, base, os.path.join(ctx_dir, "repo"))
+    changed = [f.get("filename", "") for f in files] + [f["previous_filename"] for f in files if f.get("previous_filename")]
+    guide = documents.collect_guide(gh, ctx, repo, base, os.path.join(ctx_dir, "repo"), changed)
 
     standards = subprocess.run(["git", "-C", env["STANDARDS_DIR"], "rev-parse", "HEAD"],
                                capture_output=True, text=True, check=True).stdout.strip()
@@ -158,7 +159,7 @@ def write_index(ctx_dir, repo, number, s, nonce):
         parts += ["", "## Renamed or copied files", fenced(["{} -> {} ({})".format(r["from"], r["to"], r["status"]) for r in s["renamed"]])]
     parts += ["", "## Linked issues", fenced(s["issues"]), "", "## Figma links", fenced(s["figma"]),
               "", "## Linked documents", fenced(s["docs"]), "", "## Repository guide (base branch)", fenced(s["repo_docs"])]
-    notes = s["notes"] + ["Cut at its size limit: {}.".format(c) for c in s["cut_sources"]]
+    notes = s["notes"] + ["Cut at its size limit or not available: {}.".format(c) for c in s["cut_sources"]]
     if notes:
         parts += ["", "## Notes"] + ["- " + n for n in notes]
     with open(os.path.join(ctx_dir, "INDEX.md"), "w", encoding="utf-8") as fh:

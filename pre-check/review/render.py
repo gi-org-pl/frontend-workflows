@@ -246,7 +246,7 @@ def render(result, scope, evaluation, coverage):
     if scope["figma"]:
         links = " ".join("[{}]({})".format(i + 1, url) for i, url in enumerate(scope["figma"]) if allowed_link(url))
         lines.append("- Visual fidelity against the Figma design was judged only from the design comparison in the pull request description: the reviewer checks that it is there and covers the changed views, but sees neither Figma nor the images. Figma links: " + links + ".")
-    lines += ["- Cut at its size limit: " + one_line(c, 200) + "." for c in scope["cut_sources"]]
+    lines += ["- Cut at its size limit or not available: " + one_line(c, 200) + "." for c in scope["cut_sources"]]
     lines += ["- " + one_line(n, 400) for n in scope["notes"]]
     lines += ["- " + one_line(item, 400) for item in result["not_checked"][:MAX_ITEMS]]
 

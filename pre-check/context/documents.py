@@ -22,6 +22,7 @@ MAX_BODY_BYTES = 60000
 MAX_DOC_FILES = 20
 MAX_FILE_BYTES = 200000
 MAX_GUIDE_DOCS = 40
+SCOPED_GUIDE = re.compile(r"(^|/)(AGENTS|CLAUDE)\.md$")
 SEGMENT = re.compile(r"^[A-Za-z0-9._-]+$")
 NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 GUIDE = re.compile(r"(^|/)(AGENTS|CLAUDE)\.md$|^(README\.md|CONTRIBUTING\.md|docs/.*\.mdx?|\.github/pull_request_template\.md)$")
@@ -211,18 +212,35 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
     return docs
 
 
-def collect_guide(gh, ctx, repo, base_sha, out_dir):
+def applies(guide_path, changed):
+    """A scoped guide (AGENTS.md, CLAUDE.md) applies to the files below its
+    directory; one at the root applies to every file."""
+    folder = guide_path.rpartition("/")[0]
+    return not folder or any(p.startswith(folder + "/") for p in changed)
+
+
+def collect_guide(gh, ctx, repo, base_sha, out_dir, changed):
     """The repository's guide at the base commit: every AGENTS.md and CLAUDE.md,
-    then at most MAX_GUIDE_DOCS other documents."""
+    then at most MAX_GUIDE_DOCS other documents. An AGENTS.md or CLAUDE.md that
+    applies to a changed file (CHANGED: the paths of the pull request) but
+    cannot be given to the reviewer - a path outside the plain character set,
+    or a failed read - goes to cut_sources, so the result needs a person; any
+    other guide document that cannot be read is a note."""
     tree = gh.api("repos/{}/git/trees/{}?recursive=1".format(repo, base_sha))
     if tree.get("truncated"):
         ctx.cut_sources.append("the file list of the base branch")
     guide, others, skipped = [], 0, 0
     for item in tree.get("tree", []):
         path = item.get("path", "")
-        if item.get("type") != "blob" or not GUIDE.search(path) or not safe_relpath(path):
+        if item.get("type") != "blob" or not GUIDE.search(path):
             continue
-        if not re.search(r"(^|/)(AGENTS|CLAUDE)\.md$", path):
+        scoped = bool(SCOPED_GUIDE.search(path))
+        if not safe_relpath(path):
+            if scoped and applies(path, changed):
+                ctx.cut_sources.append("an AGENTS.md or CLAUDE.md that applies to changed files, at a path with "
+                                       "characters the pre-check does not fetch")
+            continue
+        if not scoped:
             if others >= MAX_GUIDE_DOCS:
                 skipped += 1
                 continue
@@ -233,6 +251,10 @@ def collect_guide(gh, ctx, repo, base_sha, out_dir):
         try:
             data = gh.raw("repos/{}/contents/{}?ref={}".format(repo, path, base_sha))
         except GitHubError:
+            if scoped and applies(path, changed):
+                ctx.cut_sources.append("repository guide {} (it could not be read)".format(path))
+            else:
+                ctx.notes.append("The repository guide document {} could not be read.".format(path))
             continue
         if len(data) > MAX_FILE_BYTES:
             ctx.cut_sources.append("repository guide " + path)
