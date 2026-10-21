@@ -113,5 +113,15 @@ class EscapeTest(unittest.TestCase):
         self.assertNotIn("sk-ant-oat01", render.one_line("sk-ant-oat01-" + "A" * 40, 400))
 
 
+class UnreadContextTest(unittest.TestCase):
+    def test_unread_context_is_listed_and_the_result_says_why_it_is_not_clean(self):
+        sc = scope(unread_context=["the linked document gi-org-pl/product/a.md (it could not be read)"])
+        comment, _ = render.render(result(), sc, outcome(result(), sc), "full")
+        self.assertIn("passed - the reviewer reported no findings. Not clean", comment)
+        self.assertIn("Not clean: some linked context was not read in full", comment)
+        self.assertIn("Linked context not read in full (does not need a person by itself)", comment)
+        self.assertIn(r"gi\-org\-pl/product/a\.md", comment)
+
+
 if __name__ == "__main__":
     unittest.main()

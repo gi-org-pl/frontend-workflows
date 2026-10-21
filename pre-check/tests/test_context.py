@@ -203,7 +203,7 @@ class DocumentsTest(unittest.TestCase):
         self.assertEqual(issues, [])
         self.assertEqual(ctx.cut_sources, ["the linked issue gi-org-pl/app#9 (it could not be read)"])
 
-    def test_an_unreadable_document_needs_a_person(self):
+    def test_an_unreadable_document_is_unread_context(self):
         # A private repository the caller's token cannot see answers like a failed read.
         text = "https://github.com/gi-org-pl/private-docs/blob/main/docs/spec.md"
         gh = FakeGitHub({"repos/gi-org-pl/private-docs": GitHubError("404")})
@@ -211,7 +211,23 @@ class DocumentsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             docs = documents.collect_documents(gh, ctx, text, ["gi-org-pl/private-docs"], "gi-org-pl", out)
         self.assertEqual(docs, [])
-        self.assertEqual(ctx.cut_sources, ["a linked document of gi-org-pl/private-docs (the repository could not be read)"])
+        self.assertEqual(ctx.cut_sources, [])
+        self.assertEqual(ctx.unread, ["a linked document of gi-org-pl/private-docs (the repository could not be read)"])
+
+    def test_a_missing_or_large_document_is_unread_context(self):
+        sha = "f" * 40
+        gh = FakeGitHub({
+            "repos/gi-org-pl/product": {"default_branch": "main"},
+            "repos/gi-org-pl/product/commits/main": {"sha": sha},
+        }, raw={"repos/gi-org-pl/product/contents/big.md?ref=" + sha: "x" * (documents.MAX_FILE_BYTES + 5000)})
+        text = "https://github.com/gi-org-pl/product/blob/main/gone.md https://github.com/gi-org-pl/product/blob/main/big.md"
+        ctx = documents.Context("n")
+        with tempfile.TemporaryDirectory() as out:
+            docs = documents.collect_documents(gh, ctx, text, ["gi-org-pl/product"], "gi-org-pl", out)
+        self.assertEqual(docs, ["gi-org-pl/product/big.md@" + "f" * 7])
+        self.assertEqual(ctx.cut_sources, [])
+        self.assertEqual(ctx.unread[0], "the linked document gi-org-pl/product/gone.md (it could not be read)")
+        self.assertIn("the first 200 KB of 205 KB read", ctx.unread[1])
 
     def test_documents_only_from_the_default_branch(self):
         gh = FakeGitHub({
@@ -228,18 +244,26 @@ class DocumentsTest(unittest.TestCase):
             docs = documents.collect_documents(gh, ctx, text, ["gi-org-pl/product"], "gi-org-pl", out)
         self.assertEqual(docs, ["gi-org-pl/product/a.md@" + "f" * 7])
         # Not given to the reviewer, so the result needs a person.
-        self.assertEqual(sum("outside its default branch" in c for c in ctx.cut_sources), 3)
+        self.assertEqual(sum("outside its default branch" in u for u in ctx.unread), 3)
+        self.assertEqual(ctx.cut_sources, [])
 
-    def test_linked_sources_over_the_caps_need_a_person(self):
+    def test_issues_over_the_cap_are_listed_as_not_read(self):
         refs = ["gi-org-pl/app#{}".format(n) for n in range(1, documents.MAX_ISSUES + 2)]
         routes = {"repos/gi-org-pl/app/issues/{}".format(n): {"title": "t", "body": "", "author_association": "MEMBER"} for n in range(1, 20)}
         routes.update({"repos/gi-org-pl/app/issues/{}/comments?per_page=100".format(n): [] for n in range(1, 20)})
         ctx = documents.Context("n")
         with tempfile.TemporaryDirectory() as out:
             issues, _ = documents.collect_issues(FakeGitHub(routes), ctx, refs, "gi-org-pl", out)
-        self.assertEqual(len(issues), documents.MAX_ISSUES)
-        self.assertEqual(len(ctx.cut_sources), 1)
-        self.assertIn(refs[-1], ctx.cut_sources[0])
+        self.assertEqual((len(issues), documents.MAX_ISSUES), (10, 10))
+        self.assertEqual(ctx.cut_sources, [])
+        self.assertEqual(len(ctx.unread), 1)
+        self.assertIn("not read: " + refs[-1], ctx.unread[0])
+
+    def test_closing_issues_are_read_first(self):
+        body = "See #1, #2 and gi-org-pl/other#3. Fixes #7, closes https://github.com/gi-org-pl/app/issues/8"
+        refs = documents.issue_refs(body, ["gi-org-pl/app#9"], "gi-org-pl/app")
+        self.assertEqual(refs[:3], ["gi-org-pl/app#9", "gi-org-pl/app#7", "gi-org-pl/app#8"])
+        self.assertEqual(sorted(refs[3:]), ["gi-org-pl/app#1", "gi-org-pl/app#2", "gi-org-pl/other#3"])
 
     def test_quote_records_cuts_without_breaking_characters(self):
         ctx = documents.Context("n")

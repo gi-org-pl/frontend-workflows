@@ -14,7 +14,7 @@ import re
 from github import GitHubError
 
 TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
-MAX_ISSUES = 5
+MAX_ISSUES = 10
 MAX_COMMENTS = 50
 MAX_COMMENT_CHARS = 8000
 MAX_ISSUE_BYTES = 60000
@@ -30,18 +30,29 @@ FIGMA = re.compile(r"https://([a-z]+\.)?figma\.com/[A-Za-z0-9._~/?=&%:+-]+")
 
 
 class Context:
-    """Collects notes and cut sources while the pieces are gathered."""
+    """Collects notes, cut sources and unread context while the pieces are
+    gathered. cut_sources: context of the change itself (the description,
+    issues, the repository's guide) that was cut or could not be read - the
+    result needs a person. unread: linked context (issues beyond the cap,
+    linked documents) that was not read in full - listed, and the result
+    passes as "advisory" at best (contracts.SCOPE_RULES)."""
 
     def __init__(self, nonce):
         self.nonce = nonce
         self.notes = []
         self.cut_sources = []
+        self.unread = []
 
-    def quote(self, label, data, limit):
+    def quote(self, label, data, limit, linked=False):
+        """LINKED: a linked document, whose cut is unread context, not a cut source."""
         if isinstance(data, str):
             data = data.encode("utf-8")
         if len(data) > limit:
-            self.cut_sources.append(label)
+            if linked:
+                self.unread.append("{} (cut at its size limit: the first {} KB of {} KB read)".format(
+                    label, limit // 1000, (len(data) + 999) // 1000))
+            else:
+                self.cut_sources.append(label)
             data = data[:limit]
         text = data.decode("utf-8", errors="ignore")  # a cut never leaves half a character
         return "BEGIN QUOTED DATA {} ({})\n{}\nEND QUOTED DATA {}\n".format(self.nonce, label, text, self.nonce)
@@ -60,9 +71,18 @@ def inside(target, base):
     return target.startswith(base + os.sep)
 
 
+CLOSING_WORD = r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)"
+REF_IN_BODY = r"(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/|((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#)([0-9]+)"
+
+
 def issue_refs(body, closing, repo):
-    """Candidate references, closing references first, in order, unique."""
+    """Candidate references, unique, in the order they are read: the issues
+    the pull request closes (GitHub's closing references, then the ones the
+    description names after "closes", "fixes" or "resolves"), then the other
+    mentions in order."""
     found = list(closing)
+    for m in re.finditer(r"(?i)\b" + CLOSING_WORD + r":?\s+" + REF_IN_BODY, body):
+        found.append("{}#{}".format(m.group(1) or m.group(2) or repo, m.group(3)))
     found += ["{}#{}".format(m.group(1), m.group(2)) for m in
               re.finditer(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([0-9]+)", body)]
     for m in re.finditer(r"(?:^|[^A-Za-z0-9_/.-])((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#([0-9]+)", body):
@@ -129,7 +149,7 @@ def collect_issues(gh, ctx, refs, owner, out_dir):
         issues.append(ref)
         links += "\n" + text[:MAX_ISSUE_BYTES]
     if not_read:
-        ctx.cut_sources.append("linked issues beyond the first {}: {}".format(MAX_ISSUES, " ".join(not_read)))
+        ctx.unread.append("linked issues beyond the first {}, not read: {}".format(MAX_ISSUES, " ".join(not_read)))
     if outside:
         ctx.notes.append("{} comment(s) on the linked issues by people outside the organisation were left out.".format(outside))
     return issues, links
@@ -168,17 +188,17 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
             return
         target = os.path.join(out_dir, repo, path)
         if not safe_relpath(path) or not inside(target, out_dir):
-            ctx.cut_sources.append("a linked document of {} at a path the pre-check does not fetch".format(repo))
+            ctx.unread.append("a linked document of {} at a path the pre-check does not fetch".format(repo))
             return
         try:
             data = gh.raw("repos/{}/contents/{}?ref={}".format(repo, path, sha))
         except GitHubError:
-            ctx.cut_sources.append("the linked document {}/{} (it could not be read)".format(repo, path))
+            ctx.unread.append("the linked document {}/{} (it could not be read)".format(repo, path))
             return
         os.makedirs(os.path.dirname(target), exist_ok=True)
         label = "document {}/{} at {}".format(repo, path, sha[:7])
         with open(target, "w", encoding="utf-8") as fh:
-            fh.write(ctx.quote(label, data, MAX_FILE_BYTES))
+            fh.write(ctx.quote(label, data, MAX_FILE_BYTES, linked=True))
         docs.append("{}/{}@{}".format(repo, path, sha[:7]))
 
     for repo in doc_repos:
@@ -196,11 +216,11 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
             try:
                 sha = resolve_ref(gh, repo, ref, cache) if safe_relpath(ref) and safe_relpath(path) else None
             except GitHubError:
-                ctx.cut_sources.append("a linked document of {} (the repository could not be read)".format(repo))
+                ctx.unread.append("a linked document of {} (the repository could not be read)".format(repo))
                 continue
             if not sha:
-                ctx.cut_sources.append("a linked document of {} outside its default branch, or at a path the pre-check "
-                                       "does not fetch".format(repo))
+                ctx.unread.append("a linked document of {} outside its default branch, or at a path the pre-check "
+                                  "does not fetch".format(repo))
                 continue
             if kind == "blob":
                 fetch(repo, sha, path)
@@ -208,13 +228,13 @@ def collect_documents(gh, ctx, text, doc_repos, owner, out_dir):
             try:
                 entries = gh.api("repos/{}/contents/{}?ref={}".format(repo, path, sha))
             except GitHubError:
-                ctx.cut_sources.append("the linked folder {}/{} (it could not be read)".format(repo, path))
+                ctx.unread.append("the linked folder {}/{} (it could not be read)".format(repo, path))
                 entries = []
             for entry in entries if isinstance(entries, list) else []:
                 if entry.get("type") == "file" and re.search(r"\.(md|mdx|txt)$", entry.get("name", "")):
                     fetch(repo, sha, entry["path"])
     if skipped:
-        ctx.cut_sources.append("linked documents beyond the first {}: {}".format(MAX_DOC_FILES, " ".join(skipped)))
+        ctx.unread.append("linked documents beyond the first {}, not read: {}".format(MAX_DOC_FILES, " ".join(skipped)))
     return docs
 
 

@@ -5,7 +5,7 @@
   "required": [
     "head", "base", "fingerprint", "standards", "max_diff_lines", "diff_lines", "file_count", "unlisted", "truncated",
     "reviewed", "not_reviewed", "excluded", "excluded_lines", "safe_assets", "unreviewable", "human_paths",
-    "workflow_changes", "renamed", "hunks", "issues", "figma", "docs", "repo_docs", "cut_sources", "notes"
+    "workflow_changes", "renamed", "hunks", "issues", "figma", "docs", "repo_docs", "cut_sources", "unread_context", "notes"
   ],
   "properties": {
     "head": { "type": "string", "maxLength": 40 },
@@ -62,6 +62,7 @@
     "docs": { "type": "array", "items": { "type": "string" } },
     "repo_docs": { "type": "array", "items": { "type": "string" } },
     "cut_sources": { "type": "array", "items": { "type": "string" } },
+    "unread_context": { "type": "array", "items": { "type": "string" } },
     "notes": { "type": "array", "items": { "type": "string" } }
   }
 }

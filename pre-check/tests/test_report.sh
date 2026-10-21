@@ -67,7 +67,7 @@ cat > "$T/scope.json" << EOF
 {"head":"$HEAD_SHA","base":"$BASE_SHA","fingerprint":"$FP","standards":"$HEAD_SHA","reviewed":["src/a.ts"],"file_count":1,"diff_lines":3,
  "max_diff_lines":3000,"unlisted":0,"truncated":false,"not_reviewed":[],"excluded":[],"excluded_lines":0,"safe_assets":[],
  "unreviewable":[],"human_paths":[],"workflow_changes":[],"renamed":[],"issues":[],"figma":[],"docs":[],
- "repo_docs":[],"cut_sources":[],"notes":[],"hunks":{"src/a.ts":[{"LEFT":[1,3],"RIGHT":[1,4]}]}}
+ "repo_docs":[],"cut_sources":[],"unread_context":[],"notes":[],"hunks":{"src/a.ts":[{"LEFT":[1,3],"RIGHT":[1,4]}]}}
 EOF
 report() { RESULT_FILE="$T/result.json" SCOPE_FILE="$T/scope.json" COVERAGE=full bash "$HERE/report.sh" report; }
 
