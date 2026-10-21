@@ -183,7 +183,10 @@ otherwise. The merged result - the pull request on top of the latest base - is n
 queue's other checks are for.
 
 If the gate fails, the review job fails. A run whose commit is no longer the head of the pull request publishes
-nothing; a run whose base moved during the review fails with "not current".
+nothing; a run whose base moved during the review fails with "not current". A run overtaken by a newer event on the
+same head - a new description, a switch to or from draft - is superseded: it publishes nothing and fails, so the
+published result is always that of the newest event, and a stale run can never leave a green check. Should GitHub list
+a superseded run's failure as the latest check of the head, re-run the newest run.
 
 ## Limits and cost
 
@@ -201,8 +204,11 @@ on that subscription. The workflow keeps one review small:
 | Standards checked against | gi-tech-standards at a commit fixed in the workflow; a caller may pin another full SHA. The repository is public, so the caller's token reads it; were it private, the checkout would need a read token and fail without one | `standards_ref` |
 
 A burst of events on one pull request is debounced: an edit waits 30 seconds, and a newer event cancels the waiting
-gate and a review that is still running. Publication is serialised per pull request across runs, and every write is
-preceded by a check that the pull request is still at the reviewed head and base. The number of turns, the duration,
+gate and a review that is still running. Publication is serialised per pull request across runs, though GitHub does
+not keep it in event order. So every write is preceded by a check that the pull request is still at the reviewed head
+and base, with the reviewed description and draft state (a fingerprint taken by the gate and again by the collector),
+and that the Pre-check comment - whose hidden second line records the event time it answers - does not answer a newer
+event. The number of turns, the duration,
 the tokens, the permission denials, the API-price estimate (on a subscription not money spent), whether the diff was
 read in full, and the tools the reviewer had are in the summary of each run.
 
@@ -314,9 +320,10 @@ Three kinds of actors matter:
   of `diff.patch` must have been read); the outcome counts every finding and ignores the reviewer's own `result`.
 - **Escaped plain-text output and a final credential scan.** See [The Pre-check comment](#the-pre-check-comment).
   Nothing the reviewer wrote reaches a workflow command or the log; the execution log is not uploaded, and only
-  numbers, a fixed word and tool names leave the job.
-- **Fresh and ordered publication.** One publisher per pull request at a time, and a head and base check before every
-  write.
+  numbers, a fixed word, tool names and the redacted result (as a one-day artifact for the review job) leave the job.
+- **Fresh and ordered publication.** One publisher per pull request at a time; before every write a check of the head,
+  the base, the fingerprint of the description and draft state, and the event time the Pre-check comment answers. A
+  superseded run publishes nothing and fails.
 - **Every action is pinned by a full commit SHA** (`actions/checkout`, `anthropics/claude-code-action`; the latter pins
   its own dependencies and the Claude Code version, 2.1.304; `--tools` and `--restricted` exist since at least
   2.1.285, and the run summary shows the tool set the session really had).

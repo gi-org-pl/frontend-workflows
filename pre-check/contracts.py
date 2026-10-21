@@ -14,8 +14,10 @@ Command line, for report.sh:
   contracts.py label OUTCOME    print the label ("" for none)
   contracts.py labels           print every label, one per line
   contracts.py validate SCHEMA FILE   exit 0 if FILE matches SCHEMA
+  contracts.py fingerprint PR_JSON    print the fingerprint of a pull request
 """
 
+import hashlib
 import json
 import sys
 
@@ -100,8 +102,21 @@ def load(path):
         return json.load(fh)
 
 
+def fingerprint(pr):
+    """What a review depends on that can change without a push and still
+    starts a new run: the description and the draft state. A run publishes
+    only while the pull request still has the fingerprint it reviewed. The
+    head and the base are checked on their own; the title is left out, as a
+    title-only edit does not start a run."""
+    data = json.dumps({"body": pr.get("body") or "", "draft": bool(pr.get("draft"))}, sort_keys=True)
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
 def main(argv):
     command = argv[1] if len(argv) > 1 else ""
+    if command == "fingerprint":
+        print(fingerprint(load(argv[2])))
+        return 0
     if command == "passes":
         return 0 if OUTCOMES.get(argv[2], (False, ""))[0] else 1
     if command == "label":

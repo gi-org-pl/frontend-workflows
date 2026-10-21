@@ -106,6 +106,7 @@ jobs:
     outputs:
       verdict: ${{ steps.decide.outputs.verdict }}
       reason: ${{ steps.decide.outputs.reason }}
+      fingerprint: ${{ steps.decide.outputs.fingerprint }}
     steps:
       - name: Check out the pre-check scripts
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -290,7 +291,10 @@ jobs:
       pull-requests: write
       issues: write
       checks: read
-    # One publisher per pull request at a time, across runs, in order.
+    # One publisher per pull request at a time, across runs. GitHub does not
+    # keep them in event order, so report.sh also refuses to publish for an
+    # event older than the one the Pre-check comment answers, or when the
+    # description or draft state changed since the gate (FINGERPRINT).
     concurrency:
       group: frontend-pre-check-publish-${{ github.repository }}-${{ github.event.pull_request.number || github.event.merge_group.head_ref || github.run_id }}
       cancel-in-progress: false
@@ -323,6 +327,8 @@ jobs:
           GATE: ${{ needs.gate.result }}
           VERDICT: ${{ needs.gate.outputs.verdict }}
           GATE_REASON: ${{ needs.gate.outputs.reason }}
+          FINGERPRINT: ${{ needs.gate.outputs.fingerprint }}
+          EVENT_TIME: ${{ github.event.pull_request.updated_at }}
           ANALYSE: ${{ needs.analyse.result }}
           ABORT: ${{ needs.analyse.outputs.abort }}
           RESULT_DIR: ${{ runner.temp }}/pre-check-result

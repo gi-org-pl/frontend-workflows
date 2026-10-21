@@ -3,13 +3,14 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "head", "base", "standards", "max_diff_lines", "diff_lines", "file_count", "unlisted", "truncated",
+    "head", "base", "fingerprint", "standards", "max_diff_lines", "diff_lines", "file_count", "unlisted", "truncated",
     "reviewed", "not_reviewed", "excluded", "excluded_lines", "safe_assets", "unreviewable", "human_paths",
     "workflow_changes", "renamed", "hunks", "issues", "figma", "docs", "repo_docs", "cut_sources", "notes"
   ],
   "properties": {
     "head": { "type": "string", "maxLength": 40 },
     "base": { "type": "string", "maxLength": 40 },
+    "fingerprint": { "type": "string", "maxLength": 64 },
     "standards": { "type": "string", "maxLength": 40 },
     "max_diff_lines": { "type": "integer", "minimum": 0 },
     "diff_lines": { "type": "integer", "minimum": 0 },

@@ -108,7 +108,7 @@ def collect(gh, env):
                                capture_output=True, text=True, check=True).stdout.strip()
     scope = dict(classification)
     scope.update({
-        "head": head, "base": base, "standards": standards, "max_diff_lines": int(env.get("MAX_DIFF_LINES", "3000")),
+        "head": head, "base": base, "fingerprint": contracts.fingerprint(pr), "standards": standards, "max_diff_lines": int(env.get("MAX_DIFF_LINES", "3000")),
         "unlisted": unlisted, "truncated": bool(classification["not_reviewed"]) or unlisted > 0,
         "issues": issues, "figma": figma, "docs": docs, "repo_docs": guide,
         "cut_sources": ctx.cut_sources, "notes": ctx.notes,

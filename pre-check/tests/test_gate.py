@@ -88,5 +88,15 @@ class InputTest(unittest.TestCase):
                 gate.check_inputs(env(**extra))
 
 
+class FingerprintTest(unittest.TestCase):
+    def test_the_gate_records_the_pull_request_it_saw(self):
+        gh = FakeGitHub({"repos/gi-org-pl/app/pulls/7": {"body": "b", "draft": False, "title": "t"}})
+        self.assertEqual(gate.pr_fingerprint(gh, env()), gate.contracts.fingerprint({"body": "b", "draft": False}))
+
+    def test_no_fingerprint_outside_a_pull_request_or_without_the_api(self):
+        self.assertEqual(gate.pr_fingerprint(FakeGitHub({}), env(EVENT="merge_group")), "")
+        self.assertEqual(gate.pr_fingerprint(FakeGitHub({}), env()), "")
+
+
 if __name__ == "__main__":
     unittest.main()

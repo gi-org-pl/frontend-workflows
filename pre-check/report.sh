@@ -23,7 +23,9 @@
 #
 # Environment: REPO, PR_NUMBER, HEAD_SHA, BASE_SHA, GH_TOKEN, RUN_URL, MODEL,
 # WORKFLOW_SHA, RESULT_FILE, SCOPE_FILE, COVERAGE, USAGE_JSON, TOOLS_USED,
-# REASON, SKIP_REASON, MERGE_HEAD_REF, CHECK_RUN_ID.
+# REASON, SKIP_REASON, MERGE_HEAD_REF, CHECK_RUN_ID, FINGERPRINT (the gate's,
+# see contracts.fingerprint), EVENT_TIME (updated_at of the pull request in
+# the event that started the run).
 set -euo pipefail
 
 : "${REPO:?}"
@@ -31,6 +33,10 @@ MODE="${1:?usage: report.sh publish|start|notchecked|queue|report|error}"
 HERE=$(cd "$(dirname "$0")" && pwd)
 CONTRACTS="$HERE/contracts.py"
 MARKER="<!-- gi-pre-check -->"
+# The second line of the Pre-check comment records which event it answers.
+STATE="gi-pre-check-state"
+[[ "${EVENT_TIME:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || EVENT_TIME=""
+[[ "${FINGERPRINT:-}" =~ ^[0-9a-f]{64}$ ]] || FINGERPRINT=""
 
 finish() { # outcome: exit with the status the contract gives it
   if python3 "$CONTRACTS" passes "$1"; then exit 0; fi
@@ -56,18 +62,34 @@ comment_id() {
     --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\"))) | .id" | sed -n 1p
 }
 
+# The event time recorded in the Pre-check comment ("" when there is none).
+published_event_time() {
+  gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+    --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\"))) | .body | match(\"$STATE event_time=([0-9TZ:-]{20})\").captures[0].string" | sed -n 1p
+}
+
+# A newer event changed what this run reviewed: it publishes nothing and
+# fails, so that it can never leave a stale result or a stale green check
+# behind; the run of the newer event publishes.
+superseded() {
+  echo "::warning title=Pre-check::Superseded: $1 The run of the newer event publishes; this one changes nothing and does not pass."
+  exit 1
+}
+
 # The freshness guard, called right before every write: the run publishes
-# only while the pull request is still at the head (and base) it reviewed.
-# A moved head ends quietly (the newer run publishes); a moved base returns 1.
-# If the pull request cannot be read, nothing more is published and the run
-# fails.
+# only while the pull request is still at the head (and base) it reviewed,
+# with the fingerprint it reviewed, and while the Pre-check comment does not
+# answer a newer event. A moved head ends quietly (the newer run publishes);
+# a moved base returns 1; a newer event ends the run as superseded. If the
+# pull request cannot be read, nothing more is published and the run fails.
 guard() {
-  local state current base draft
-  if ! state=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '"\(.head.sha) \(.base.sha) \(.draft)"'); then
+  local pr current base draft recorded
+  pr=$(mktemp)
+  if ! gh api "repos/$REPO/pulls/$PR_NUMBER" > "$pr"; then
     echo "::error title=Pre-check::Could not read the pull request; nothing more is published."
     exit 1
   fi
-  read -r current base draft <<< "$state"
+  read -r current base draft < <(jq -r '"\(.head.sha) \(.base.sha) \(.draft)"' "$pr")
   if [ "$current" != "$HEAD_SHA" ]; then
     echo "The pull request moved on from ${HEAD_SHA:0:7} to ${current:0:7}; nothing more is published by this run."
     exit 0
@@ -78,11 +100,28 @@ guard() {
     echo "The pull request is a draft now; this result is not published."
     exit 1
   fi
-  [ -z "${BASE_SHA:-}" ] || [ "$base" = "$BASE_SHA" ]
+  if [ -n "$EVENT_TIME" ]; then
+    if ! recorded=$(published_event_time); then
+      echo "::error title=Pre-check::Could not read the Pre-check comment; nothing more is published."
+      exit 1
+    fi
+    if [ -n "$recorded" ] && [[ "$recorded" > "$EVENT_TIME" ]]; then
+      superseded "the Pre-check comment already answers an event of $recorded, newer than this run's $EVENT_TIME."
+    fi
+  fi
+  [ -z "${BASE_SHA:-}" ] || [ "$base" = "$BASE_SHA" ] || return 1
+  if [ -n "$FINGERPRINT" ] && [ "$(python3 "$CONTRACTS" fingerprint "$pr")" != "$FINGERPRINT" ]; then
+    superseded "the description or the draft state changed after this run's event."
+  fi
 }
 
 upsert_comment() {
-  local file="$1" id
+  local file="$1" id stamped
+  if [ -n "$EVENT_TIME" ]; then
+    stamped=$(mktemp)
+    { sed -n 1p "$file"; echo "<!-- $STATE event_time=$EVENT_TIME fingerprint=${FINGERPRINT:-none} -->"; sed -n '2,$p' "$file"; } > "$stamped"
+    file="$stamped"
+  fi
   id=$(comment_id) || id=""
   if [ -n "$id" ]; then
     gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@"$file" > /dev/null
@@ -203,6 +242,12 @@ outcome=$(jq -r .outcome "$out/evaluation.json")
 if [ "$outcome" = invalid ]; then
   REASON=invalid exec bash "$0" error
 fi
+# From here the guard compares the pull request with what was analysed.
+analysed=$(jq -r '.fingerprint' "$SCOPE_FILE")
+if [ -n "$FINGERPRINT" ] && [ "$analysed" != "$FINGERPRINT" ]; then
+  superseded "the description or the draft state changed while this run gathered its context."
+fi
+FINGERPRINT=$analysed
 # A result withheld in the analyse job (package.py) has no text to render.
 if [ "$(jq -r .withheld "$out/evaluation.json")" != true ]; then
   python3 "$HERE/review/render.py" "$RESULT_FILE" "$SCOPE_FILE" "$out/evaluation.json" "$out"

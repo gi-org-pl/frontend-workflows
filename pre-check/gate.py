@@ -22,7 +22,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "context"))
+sys.path.insert(0, HERE)
 
+import contracts  # noqa: E402
 import github  # noqa: E402
 
 
@@ -113,6 +115,19 @@ def decide(gh, env, now=None, sleep=time.sleep):
     return "run", "reviewing."
 
 
+def pr_fingerprint(gh, env):
+    """The fingerprint (contracts.fingerprint) of the pull request as this
+    run's gate saw it, read after the debounce; "" outside a pull request or
+    when the API cannot be read (the publisher then checks the head, the base
+    and the event time only)."""
+    if env.get("EVENT") != "pull_request" or not env.get("PR_NUMBER"):
+        return ""
+    try:
+        return contracts.fingerprint(gh.api("repos/{}/pulls/{}".format(env["REPO"], env["PR_NUMBER"])))
+    except github.GitHubError:
+        return ""
+
+
 def main():
     env = dict(os.environ)
     try:
@@ -123,7 +138,7 @@ def main():
     verdict, reason = decide(github, env)
     print("::notice title=Pre-check::" + reason)
     with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-        fh.write("verdict={}\nreason={}\n".format(verdict, reason))
+        fh.write("verdict={}\nreason={}\nfingerprint={}\n".format(verdict, reason, pr_fingerprint(github, env)))
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
             fh.write("Pre-check: {}\n".format(reason))

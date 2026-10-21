@@ -231,6 +231,7 @@ class CollectTest(unittest.TestCase):
             self.assertEqual(contracts.errors(scope, schema), [])
             with open(os.path.join(env["CTX"], "scope.json"), encoding="utf-8") as fh:
                 self.assertEqual(json.load(fh)["reviewed"], ["src/a.ts"])
+            self.assertEqual(scope["fingerprint"], contracts.fingerprint({"body": "", "draft": False}))
 
     def test_stale_head_aborts(self):
         with tempfile.TemporaryDirectory() as tmp:

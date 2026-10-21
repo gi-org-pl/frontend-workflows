@@ -29,7 +29,7 @@ def finding(severity="non-blocking", title="t", body="b", **extra):
 
 
 def scope(**extra):
-    data = {"head": "a" * 40, "base": "b" * 40, "standards": "c" * 40, "max_diff_lines": 3000, "diff_lines": 10,
+    data = {"head": "a" * 40, "base": "b" * 40, "fingerprint": "f" * 64, "standards": "c" * 40, "max_diff_lines": 3000, "diff_lines": 10,
             "file_count": 1, "unlisted": 0, "truncated": False, "reviewed": ["src/a.ts"], "not_reviewed": [],
             "excluded": [], "excluded_lines": 0, "safe_assets": [], "unreviewable": [], "human_paths": [],
             "workflow_changes": [], "renamed": [], "hunks": {"src/a.ts": [{"LEFT": [1, 5], "RIGHT": [1, 9]}]},
@@ -52,6 +52,16 @@ class OutcomeStatesTest(unittest.TestCase):
         for name, (passes, _) in contracts.OUTCOMES.items():
             self.assertEqual(contracts.main(["contracts.py", "passes", name]), 0 if passes else 1, name)
         self.assertEqual(contracts.main(["contracts.py", "passes", "unknown"]), 1)
+
+
+class FingerprintTest(unittest.TestCase):
+    def test_description_and_draft_count_title_does_not(self):
+        base = contracts.fingerprint({"body": "a", "draft": False, "title": "x"})
+        self.assertEqual(base, contracts.fingerprint({"body": "a", "draft": False, "title": "y"}))
+        self.assertNotEqual(base, contracts.fingerprint({"body": "b", "draft": False}))
+        self.assertNotEqual(base, contracts.fingerprint({"body": "a", "draft": True}))
+        self.assertEqual(contracts.fingerprint({"body": None}), contracts.fingerprint({"body": ""}))
+        self.assertRegex(base, "^[0-9a-f]{64}$")
 
 
 class VerdictTest(unittest.TestCase):

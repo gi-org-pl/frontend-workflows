@@ -13,7 +13,9 @@ cat > "$T/bin/gh" << 'EOF'
 echo "gh $*" >> "$FAKE_LOG"
 args="$*"
 case "$args" in
-  *'pulls/1 --jq "\(.head.sha) \(.base.sha) \(.draft)"'*) echo "$FAKE_HEAD $FAKE_BASE ${FAKE_DRAFT:-false}" ;;
+  "api repos/gi-org-pl/x/pulls/1") jq -n --arg h "$FAKE_HEAD" --arg b "$FAKE_BASE" --arg body "${FAKE_BODY:-}" \
+      --argjson d "${FAKE_DRAFT:-false}" '{head: {sha: $h}, base: {sha: $b}, draft: $d, body: $body}' ;;
+  *"issues/1/comments?per_page=100"*"event_time"*) echo "${FAKE_PUBLISHED_TIME:-}" ;;
   *"pulls/"*" --jq .head.sha"*) echo "$FAKE_HEAD" ;;
   *"check-runs/"*" --jq .name"*) echo "frontend-pre-check / review" ;;
   *"commits/"*"/check-runs"*) echo "$FAKE_CHECK" ;;
@@ -55,8 +57,10 @@ labelled() { grep -q -- "labels\[\]=$1" "$FAKE_LOG"; }
 
 decisions='{"data_structures":[],"state":[],"api_contracts":[],"ux_behaviours":[],"new_dependencies":[],"architecture":[]}'
 mk_result() { echo "{\"result\":\"passed\",\"summary\":\"s\",\"decisions\":$decisions,\"findings\":$1,\"checked\":[],\"not_checked\":[],\"qa\":[]}" > "$T/result.json"; }
+echo '{"body": "", "draft": false}' > "$T/pr.json"
+FP=$(python3 "$HERE/contracts.py" fingerprint "$T/pr.json")
 cat > "$T/scope.json" << EOF
-{"head":"$HEAD_SHA","base":"$BASE_SHA","standards":"$HEAD_SHA","reviewed":["src/a.ts"],"file_count":1,"diff_lines":3,
+{"head":"$HEAD_SHA","base":"$BASE_SHA","fingerprint":"$FP","standards":"$HEAD_SHA","reviewed":["src/a.ts"],"file_count":1,"diff_lines":3,
  "max_diff_lines":3000,"unlisted":0,"truncated":false,"not_reviewed":[],"excluded":[],"excluded_lines":0,"safe_assets":[],
  "unreviewable":[],"human_paths":[],"workflow_changes":[],"renamed":[],"issues":[],"figma":[],"docs":[],
  "repo_docs":[],"cut_sources":[],"notes":[],"hunks":{"src/a.ts":[{"LEFT":[1,3],"RIGHT":[1,4]}]}}
@@ -106,6 +110,27 @@ check "an invalid result fails" 1 report
 
 check "an unfinished run fails" 1 env REASON=failed bash "$HERE/report.sh" error
 
+# Same head, newer event: GitHub does not keep the publishers in event order.
+# An older run that publishes after the newer one must change nothing and fail.
+mk_result '[]'
+older="EVENT_TIME=2026-10-21T10:00:00Z FINGERPRINT=$FP RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
+check "the newest event publishes and records its time" 0 env EVENT_TIME=2026-10-21T10:05:00Z FINGERPRINT="$FP" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
+posted_has "gi-pre-check-state event_time=2026-10-21T10:05:00Z fingerprint=$FP" || { echo "FAIL state marker"; failures=$((failures + 1)); }
+[ "$(sed -n 1p "$FAKE_POSTED")" = "<!-- gi-pre-check -->" ] || { echo "FAIL marker not first"; failures=$((failures + 1)); }
+check "an older publisher after a newer one, same head, same text: superseded" 1 env FAKE_PUBLISHED_TIME=2026-10-21T10:05:00Z bash -c "$older"
+if grep -q "comments -F\|comments/.* -F\|labels" "$FAKE_LOG" || [ -e "$FAKE_POSTED" ]; then echo "FAIL superseded run wrote"; failures=$((failures + 1)); fi
+check "an older publisher after a description edit, same head: superseded" 1 env FAKE_BODY="new description" bash -c "$older"
+if grep -q "labels" "$FAKE_LOG" || [ -e "$FAKE_POSTED" ]; then echo "FAIL edited-description run wrote"; failures=$((failures + 1)); fi
+check "a skip of an older draft event after ready for review: superseded" 1 env FINGERPRINT="$(echo '{"body": "", "draft": true}' > "$T/draft.json"; python3 "$HERE/contracts.py" fingerprint "$T/draft.json")" SKIP_REASON="the pull request is a draft." bash "$HERE/report.sh" notchecked
+if grep -q "labels" "$FAKE_LOG" || [ -e "$FAKE_POSTED" ]; then echo "FAIL stale skip wrote"; failures=$((failures + 1)); fi
+check "an error of an older event after a newer result: superseded" 1 env EVENT_TIME=2026-10-21T10:00:00Z FAKE_PUBLISHED_TIME=2026-10-21T10:05:00Z REASON=failed bash "$HERE/report.sh" error
+[ ! -e "$FAKE_POSTED" ] || { echo "FAIL stale error wrote"; failures=$((failures + 1)); }
+check "a description changed while the context was gathered: superseded" 1 env EVENT_TIME=2026-10-21T10:00:00Z FINGERPRINT="$(printf 'e%.0s' $(seq 64))" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
+[ ! -e "$FAKE_POSTED" ] || { echo "FAIL gather-time edit wrote"; failures=$((failures + 1)); }
+check "the same event re-run publishes again" 0 env FAKE_PUBLISHED_TIME=2026-10-21T10:00:00Z bash -c "$older"
+check "a comment from an older event is overwritten" 0 env FAKE_PUBLISHED_TIME=2026-10-21T09:00:00Z bash -c "$older"
+posted_has "event_time=2026-10-21T10:00:00Z" || { echo "FAIL newer run did not overwrite"; failures=$((failures + 1)); }
+
 # The review job's dispatch (report.sh publish) for every way the gate and the
 # analysis can end.
 mk_result '[]'
@@ -128,7 +153,7 @@ check "publish: a missing result fails" 1 env GATE=success VERDICT=run ANALYSE=s
 printf '%s' '{"withheld": true}' > "$T/artifact/result.json"
 check "publish: a result withheld in the analyse job fails" 1 env GATE=success VERDICT=run ANALYSE=success RESULT_DIR="$T/artifact" COVERAGE=full bash "$HERE/report.sh" publish
 posted_has "withheld" || { echo "FAIL withheld comment"; failures=$((failures + 1)); }
-check "an API failure while publishing fails" 1 env FAKE_FAIL="pulls/1 --jq" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
+check "an API failure while publishing fails" 1 env FAKE_FAIL="api repos/gi-org-pl/x/pulls/1" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
 
 if (( failures )); then
   echo "$failures failure(s)"
