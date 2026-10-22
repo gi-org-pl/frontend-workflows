@@ -296,7 +296,7 @@ fi
 FINGERPRINT=$analysed
 # Known before anything is rendered, so the comment says whether a "needs a
 # person" result passes here (see current_head_approval_required).
-if current_head_approval_required; then APPROVAL_GATE=current-head; else APPROVAL_GATE=none; fi
+if current_head_approval_required; then APPROVAL_GATE="current-head"; else APPROVAL_GATE="none"; fi
 export APPROVAL_GATE
 # A result withheld in the analyse job (package.py) has no text to render.
 if [ "$(jq -r .withheld "$out/evaluation.json")" != true ]; then
