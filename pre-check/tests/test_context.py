@@ -293,6 +293,13 @@ class DocumentsTest(unittest.TestCase):
         body = "- item\n  ```\n  - sample\n  > quoted\n  #125\n  ```\nSee #126.\n```\n- x #127\n```\nAnd #128."
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#126", "gi-org-pl/app#128"])
 
+    def test_alternating_containers(self):
+        body = ("- > ~~~\n  > #125\n  > ~~~\nSee #126.\n"
+                "> - ```\n>   #127\n>   ```\n> And #128.\n\n"
+                "1. > - ~~~\n   >   #129\n   > Quote goes on #130")
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
+                         ["gi-org-pl/app#126", "gi-org-pl/app#128", "gi-org-pl/app#130"])
+
     def test_many_references_stay_linear(self):
         import time
         start = time.monotonic()

@@ -87,61 +87,53 @@ LIST_MARKER = re.compile(r"^ {0,3}(?:[-*+]|[0-9]{1,9}[.)])(?: +|$)")
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
-def containers(line):
-    """(block quote depth, content indent of a list item that starts on this
-    line or None, the line without its container markers)."""
-    depth, rest = 0, line
-    while True:
-        match = QUOTE_MARKER.match(rest)
-        if not match:
-            break
-        depth, rest = depth + 1, rest[match.end():]
-    indent = 0
-    while True:  # "- - item" opens nested items on one line
-        match = LIST_MARKER.match(rest)
-        if not match:
-            break
-        indent, rest = indent + match.end(), rest[match.end():]
-    return depth, (indent or None), rest
-
-
 def without_code(text):
     """TEXT without fenced code blocks and inline code spans, where a "#123"
     is code, not a reference."""
-    # Fenced blocks, as Markdown reads them, inside their containers (block
-    # quotes and list items): a fence is indented by at most three spaces
-    # within its container (with four it is indented code); a block closes at
-    # a run of the same character at least as long as the opener with nothing
-    # else on the line, or when the block quote or list item it opened in
-    # ends; an unclosed block otherwise runs to the end.
-    kept, fence, item = [], None, 0  # fence: (character, length, quote depth, item indent)
+    # Fenced blocks, as Markdown reads them inside their containers: a stack of
+    # block quotes and list items in any order ("- > ~~~"). Each line first
+    # continues the open containers (a quote by its ">", an item by its
+    # indentation; a blank line keeps items open), then opens new ones. A fence
+    # is indented by at most three spaces within its containers (with four it
+    # is indented code). A block closes at a run of the same character at
+    # least as long as the opener with nothing else on the line, or when a
+    # container it opened in ends; an unclosed block otherwise runs to the end.
+    # Inside a block only its containers are read: the rest is code.
+    kept, stack, fence = [], [], None  # stack: ">" or an item's content indent; fence: (character, length, depth)
     for line in text.split("\n"):
+        rest, matched = line, 0
+        for container in stack:
+            if container == ">":
+                match = QUOTE_MARKER.match(rest)
+                if not match:
+                    break
+                rest = rest[match.end():]
+            elif rest.strip():
+                if len(rest) - len(rest.lstrip(" ")) < container:
+                    break
+                rest = rest[container:]
+            matched += 1
         if fence is not None:
-            # Inside a block only its containers count: what looks like a list
-            # marker or a quote within the content is code.
-            depth, rest = 0, line
-            while depth < fence[2] and QUOTE_MARKER.match(rest):
-                depth, rest = depth + 1, rest[QUOTE_MARKER.match(rest).end():]
-            lead = len(rest) - len(rest.lstrip(" "))
-            if depth < fence[2] or (fence[3] and rest.strip() and lead < fence[3]):
-                fence, item = None, (item if depth < fence[2] else 0)  # the container ended
-            else:
-                match = FENCE.match(rest[fence[3]:] if lead >= fence[3] else rest.lstrip(" "))
+            if matched >= fence[2]:
+                match = FENCE.match(rest)
                 if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
                     fence = None
                 continue
-        depth, new_item, inner = containers(line)
-        if new_item is not None:
-            item = new_item
-        elif inner.strip():
-            lead = len(inner) - len(inner.lstrip(" "))
-            if item and lead >= item:
-                inner = inner[item:]
+            fence = None  # a container of the block ended; this line is read as usual
+        del stack[matched:]
+        while rest.strip():
+            match = QUOTE_MARKER.match(rest)
+            if match:
+                stack.append(">")
             else:
-                item = 0  # a line outside the item ends the list
-        match = FENCE.match(inner)
+                match = LIST_MARKER.match(rest)
+                if not match:
+                    break
+                stack.append(match.end())
+            rest = rest[match.end():]
+        match = FENCE.match(rest)
         if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
-            fence = (match.group(1)[0], len(match.group(1)), depth, item)
+            fence = (match.group(1)[0], len(match.group(1)), len(stack))
             continue
         kept.append(line)
     text = "\n".join(kept)
