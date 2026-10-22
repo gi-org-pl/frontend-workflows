@@ -133,6 +133,11 @@ def without_code(text):
                     break
                 stack.append(match.end())
             rest = rest[match.end():]
+        if not rest.strip():
+            # Nothing but container markers: a blank line of its container, which
+            # ends the paragraph (a code span never crosses one).
+            kept.append("")
+            continue
         match = FENCE.match(rest)
         if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
             fence = (match.group(1)[0], len(match.group(1)), len(stack))
@@ -142,10 +147,7 @@ def without_code(text):
     return without_code_spans(text)
 
 
-# A paragraph ends at a blank line, and at a line holding only block-quote
-# markers ("> >", each indented by at most three spaces; with more the line is
-# text of the paragraph): a code span never crosses either.
-BLANK_LINE = re.compile(r"\n(?:[ \t]*|[ ]{0,3}>(?:[ \t]{0,4}>)*[ \t]*)(?=\n|\Z)")
+BLANK_LINE = re.compile(r"\n[ \t]*\n")
 
 
 def without_code_spans(text):
