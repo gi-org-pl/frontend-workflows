@@ -65,6 +65,22 @@ comment_id() {
     --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\"))) | .id" | sed -n 1p
 }
 
+# 0 when a ruleset on the base branch of the pull request requires at least
+# one approval that a push invalidates (stale approvals dismissed, or the most
+# recent push approved by someone else). Only then can "human" pass: an
+# approval of an earlier commit must not carry an unreviewed head. Rulesets
+# are readable with the workflow token; classic branch protection is not, so
+# it does not count. Any API failure counts as "not required".
+current_head_approval_required() {
+  local base gate
+  base=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref) || return 1
+  [[ "$base" =~ ^[A-Za-z0-9._/-]+$ ]] || return 1
+  gate=$(gh api --paginate "repos/$REPO/rules/branches/$base?per_page=100" --jq '.[] | select(.type == "pull_request")
+    | .parameters | select((.required_approving_review_count // 0) >= 1
+      and ((.dismiss_stale_reviews_on_push // false) or (.require_last_push_approval // false))) | "gate"') || return 1
+  [ -n "$gate" ]
+}
+
 # The event time recorded in the Pre-check comment ("" when there is none).
 published_event_time() {
   gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
@@ -347,12 +363,17 @@ fi
 
 echo "Pre-check outcome: $outcome."
 if [ "$outcome" = human ]; then
-  # Passes: a person's approval is the gate. The annotation, the label and the
-  # comment say that this pull request needs one; the reasons are fixed texts.
+  # Passes only where a person's approval of this very head is the gate. The
+  # annotation, the label and the comment say that the pull request needs one;
+  # the reasons are fixed texts.
   reasons=$(jq -r '.reasons | join("; ")' "$out/evaluation.json")
   echo "::warning title=Pre-check::Needs a person's review: $reasons."
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '**Needs a person'"'"'s review:** %s.\n' "$reasons" >> "$GITHUB_STEP_SUMMARY" || true
+  fi
+  if ! current_head_approval_required; then
+    echo "::error title=Pre-check::Needs a person's review, and the base branch does not require an approval of the current head (a ruleset with at least one approval and \"dismiss stale approvals\" or \"require approval of the most recent push\"), so the check fails. See PROCESS.md, Approval."
+    exit 1
   fi
 fi
 python3 "$CONTRACTS" passes "$outcome" || echo "::error title=Pre-check::The pre-check did not pass ($outcome). See the Pre-check comment on the pull request."

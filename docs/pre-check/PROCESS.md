@@ -48,7 +48,7 @@ There is one set of outcome states, defined once in
 | `advisory` | only non-blocking findings, or none while some linked context was not read in full (below); the change itself was fully covered | `pre-check: advisory` | success (exit 0) |
 | `queued` | a `merge_group` entry whose pull requests passed this check on their current heads | none | success (exit 0) |
 | `changes` | at least one blocking finding, anywhere in the reviewer's list | `pre-check: changes` | failure (exit 1) |
-| `human` | a rule says a person must judge it (list below), or the reviewer's output looked like it contained a credential and was withheld | `pre-check: human review` | success (exit 0), with a warning annotation "Needs a person's review: …" |
+| `human` | a rule says a person must judge it (list below), or the reviewer's output looked like it contained a credential and was withheld | `pre-check: human review` | success (exit 0) with a warning annotation "Needs a person's review: …" where a ruleset requires an approval of the current head; failure (exit 1) elsewhere |
 | `invalid` | no valid result: the reviewer failed or returned a malformed result, the scope broke its schema, an exclusion is outside the policy, or a file name contains a control character or a backtick | none | failure (exit 1) |
 | `skipped` | not pre-checked: a fork, a draft, a bot, an actor without write access, no secret, or the hourly run limit | none | failure (exit 1) |
 | `unqueued` | a `merge_group` entry with a pull request that has no passing check on its head, or whose members cannot be established | none | failure (exit 1) |
@@ -56,13 +56,17 @@ There is one set of outcome states, defined once in
 **"Needs a person" passes the check; the person's approval is the gate.** A pull request the pre-check cannot judge
 is not wrong, so the check does not turn red: it succeeds with a warning annotation, the `pre-check: human review`
 label and the heading "⚠️ needs a person (…)". What keeps it from merging unreviewed is the approval by a person that
-the repository requires anyway (see [Approval](#approval)) - a repository that does not require one has no gate for
-these pull requests. A separate neutral check run (`frontend-pre-check / outcome`) would show the state among the
-checks, but publishing it needs `checks: write` in every caller: a new required permission, so a major release, for a
-signal the label, the annotation and the comment already give. "Changes needed" and a run that did not finish still
-fail. A pull request that was not pre-checked (fork, draft, bot, no secret, run limit) still fails too, as the security
-review required that a skip never passes; whether it should pass like "needs a person" is an open question for the
-owner.
+the repository requires (see [Approval](#approval)), and it has to be an approval **of the current head**: an approval
+of an earlier commit must not carry a later push that changes CI or dependencies. So the run passes "needs a person"
+only when a ruleset on the base branch requires at least one approval and either dismisses stale approvals on push or
+requires approval of the most recent push. It reads that from the rulesets of the branch (readable with the workflow
+token; classic branch protection is not, and does not count); without such a rule, or when the rules cannot be read,
+"needs a person" fails as before. A separate neutral check run (`frontend-pre-check / outcome`) would show the state
+among the checks, but publishing it needs `checks: write` in every caller: a new required permission, so a major
+release, for a signal the label, the annotation and the comment already give. "Changes needed" and a run that did not
+finish still fail. A pull request that was not pre-checked (fork, draft, bot, no secret, run limit) still fails too,
+as the security review required that a skip never passes; whether it should pass like "needs a person" is an open
+question for the owner.
 
 A pull request **needs a person** when any of these holds - each is decided by a rule, not by the model:
 
@@ -406,9 +410,10 @@ The options, from the simplest:
 
 1. **Required status check** `frontend-pre-check / review` plus the existing human approval (recommended): nothing
    merges with unresolved blocking findings or without a pre-check at all, and a person still accepts the pull request.
-   A pull request that needs a person passes the check, so the **required approval is its gate**: without one, it
-   could merge on the check alone. Bot and fork pull requests, which are not pre-checked, need someone with the right
-   to bypass the ruleset.
+   A pull request that needs a person passes the check, so the **required approval of the current head is its gate**:
+   a ruleset on the base branch that requires at least one approval and either dismisses stale approvals on push or
+   requires approval of the most recent push. Without that rule the check fails for such a pull request, as it did
+   before. Bot and fork pull requests, which are not pre-checked, need someone with the right to bypass the ruleset.
 2. **Label only**: the check is not required; the label and the summary inform the person, who decides.
 
 Until the organisation has made the settings below and the first weeks of runs have been looked at, use option 2: the
@@ -513,8 +518,9 @@ These are not code. Without them a writer can bypass the pre-check, or read the 
    `actions/checkout` and reusable workflows from `gi-org-pl/frontend-workflows`.
 8. **Require the right check, read the right signal.** If the check is required: Repository → Settings → Rules →
    Rulesets → "Require status checks to pass" → `frontend-pre-check / review` from GitHub Actions, and decide who may
-   bypass it (bot and fork pull requests depend on that), and keep the required approval by a person - it is the gate
-   for "needs a person". Automation that depends on the pre-check
+   bypass it (bot and fork pull requests depend on that), and require an approval of the current head in a ruleset
+   (at least one approval, and "Dismiss stale pull request approvals when new commits are pushed" or "Require approval
+   of the most recent reviewable push") - it is the gate for "needs a person". Automation that depends on the pre-check
    reads that check run for the head commit, never the label, and nobody treats a green pre-check as a sign-off.
 9. **Re-audit on every bump of the action.** The secret stays safe because of the reviewer's sandbox in `analyse`: the
    tool set, the `Read` scope and denylist (`/proc`, `~/.ssh`, `~/.claude*`, `/tmp`, runner temp and tools, `.git/`), no

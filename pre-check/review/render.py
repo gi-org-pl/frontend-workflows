@@ -163,8 +163,9 @@ def code(name):
 
 
 def cell(text):
-    """Text for a table cell: a pipe would end the cell, also inside a code span."""
-    return text.replace("|", "\\|")
+    """Text for a table cell: a pipe would end the cell, also inside a code
+    span. A pipe plain() already escaped stays escaped once."""
+    return re.sub(r"(?<!\\)\|", r"\\|", text)
 
 
 def fingerprint(f):

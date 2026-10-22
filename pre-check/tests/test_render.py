@@ -176,11 +176,14 @@ class CompactCommentTest(unittest.TestCase):
         self.assertIn("/blob/{}/src/services/auth/client/oldClient.ts#L4)".format(typical.BASE), comment)
 
     def test_a_pipe_in_a_title_stays_in_its_cell(self):
-        res = copy.deepcopy(typical.RESULT)
-        res["findings"][0]["title"] = "Union `a | b` and a | c"
-        comment, _ = typical_comment(res)
-        row = next(line for line in comment.split("\n") if line.startswith("| 🟡 | Union"))
-        self.assertEqual(len(re.findall(r"(?<!\\)\|", row)), 4)
+        for title in ["Union `a | b` and a | c", "Handle A | B", "Path `a\\|b` or c\\|d"]:
+            res = copy.deepcopy(typical.RESULT)
+            res["findings"][0]["title"] = title
+            comment, _ = typical_comment(res)
+            row = next(line for line in comment.split("\n") if line.startswith("| 🟡 | " + title[:4]))
+            # A cell boundary is a pipe after an even number of backslashes.
+            boundaries = re.findall(r"(?<!\\)(?:\\\\)*\|", row)
+            self.assertEqual(len(boundaries), 4, (title, row))
 
     def test_needs_a_person_headline_and_status(self):
         sc = copy.deepcopy(typical.SCOPE)

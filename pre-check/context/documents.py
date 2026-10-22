@@ -101,7 +101,8 @@ def without_code(text):
     # Inside a block only its containers are read: the rest is code.
     kept, stack, fence = [], [], None  # stack: ">" or an item's content indent; fence: (character, length, depth)
     for line in text.split("\n"):
-        rest, matched = line, 0
+        # A tab counts as indentation to the next multiple of four columns.
+        rest, matched = line.expandtabs(4), 0
         for container in stack:
             if container == ">":
                 match = QUOTE_MARKER.match(rest)

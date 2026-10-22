@@ -19,6 +19,8 @@ case "$args" in
     jq -n --arg h "$head" --arg b "$FAKE_BASE" --arg body "${FAKE_BODY:-}" \
       --argjson d "${FAKE_DRAFT:-false}" '{head: {sha: $h}, base: {sha: $b}, draft: $d, body: $body}' ;;
   *"issues/1/comments?per_page=100"*"event_time"*) echo "${FAKE_PUBLISHED_TIME:-}" ;;
+  *"pulls/1 --jq .base.ref"*) echo main ;;
+  *"rules/branches/main"*) echo "${FAKE_GATE-gate}" ;;
   *"pulls/"*" --jq .head.sha"*) echo "$FAKE_HEAD" ;;
   *"check-runs/"*" --jq .name"*) echo "frontend-pre-check / review" ;;
   *"api graphql"*"mergeQueue"*) echo "${FAKE_QUEUE:-}" ;;
@@ -122,6 +124,9 @@ posted_has "not pre-checked" || { echo "FAIL draft skip comment"; failures=$((fa
 check "an incomplete reading needs a person and passes with a warning" 0 bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
 grep -q "::warning title=Pre-check::Needs a person's review: the reviewer did not read the whole diff." "$T/out" || { echo "FAIL human warning annotation"; failures=$((failures + 1)); }
 labelled "pre-check: human review" || { echo "FAIL human label"; failures=$((failures + 1)); }
+check "needs a person without a current-head approval rule fails" 1 env FAKE_GATE="" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
+grep -q "does not require an approval of the current head" "$T/out" || { echo "FAIL no-gate error"; failures=$((failures + 1)); }
+check "needs a person when the rules cannot be read fails" 1 env FAKE_FAIL="rules/branches" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
 posted_has "## Pre-check: ⚠️ needs a person (the reviewer did not read the whole diff)" || { echo "FAIL human headline"; failures=$((failures + 1)); }
 
 mk_result '[{"severity":"non-blocking","path":"src/a.ts","title":"t","body":"password = hunter2hunter2x","inline":false}]'

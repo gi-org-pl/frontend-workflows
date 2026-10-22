@@ -300,6 +300,10 @@ class DocumentsTest(unittest.TestCase):
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
                          ["gi-org-pl/app#126", "gi-org-pl/app#128", "gi-org-pl/app#130"])
 
+    def test_tabs_after_container_markers(self):
+        body = ">\t~~~\n>\t#125\n>\t~~~\nSee #126.\n-\t```\n\t#127\n\t```\nAnd #128."
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#126", "gi-org-pl/app#128"])
+
     def test_many_references_stay_linear(self):
         import time
         start = time.monotonic()
