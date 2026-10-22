@@ -267,6 +267,10 @@ class DocumentsTest(unittest.TestCase):
         self.assertEqual(refs, ["gi-org-pl/app#212", "gi-org-pl/app#207"])
         self.assertFalse(documents.valid_ref("gi-org-pl/app#04554", "gi-org-pl"))
 
+    def test_fenced_blocks_close_like_markdown(self):
+        body = "```\n#1\n````\nSee #123.\n~~~~\n#2\n~~~\nstill code #3\n~~~~~\nAnd #124.\n```\n#4"
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+
     def test_mentions_near_colour_words_and_code_spans_of_any_length(self):
         body = ("See the color bug #123. For the colour picker, see #124. "
                 "Border: `#1`, ``#125``, ```#126``` and fill=\"#127\".")

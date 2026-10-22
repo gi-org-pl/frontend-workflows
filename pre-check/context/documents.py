@@ -85,8 +85,20 @@ COLOUR_CONTEXT = re.compile(r"(?i)\b(?:colou?r|background|fill|stroke|border|out
 def without_code(text):
     """TEXT without fenced code blocks and inline code spans, where a "#123"
     is code, not a reference."""
-    text = re.sub(r"(?ms)^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$", " ", text)
-    text = re.sub(r"(?ms)^[ \t]*(`{3,}|~{3,}).*\Z", " ", text)  # an unclosed fence runs to the end
+    # Fenced blocks, as Markdown reads them: a block closes at a line with a run
+    # of the same character at least as long as the opening one and nothing
+    # else; an unclosed block runs to the end.
+    kept, fence = [], None
+    for line in text.split("\n"):
+        match = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", line)
+        if fence is None:
+            if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
+                fence = match.group(1)
+                continue
+            kept.append(line)
+        elif match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
+            fence = None
+    text = "\n".join(kept)
     # A code span is delimited by a run of backticks of equal length ("``#1``").
     return re.sub(r"(`+)(?!`)(.*?[^`])\1(?!`)", " ", text)
 
