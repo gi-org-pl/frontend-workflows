@@ -74,8 +74,9 @@ comment_id() {
 current_head_approval_required() {
   local base gate
   base=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref) || return 1
-  [[ "$base" =~ ^[A-Za-z0-9._/-]+$ ]] || return 1
-  # One path parameter: a branch such as release/2.x is percent-encoded.
+  [ -n "$base" ] || return 1
+  # One path parameter: any valid branch name (release/2.x, hello-$USER) is
+  # percent-encoded, so it cannot change the path.
   base=$(jq -rn --arg base "$base" '$base | @uri')
   gate=$(gh api --paginate "repos/$REPO/rules/branches/$base?per_page=100" --jq '.[] | select(.type == "pull_request")
     | .parameters | select((.required_approving_review_count // 0) >= 1
