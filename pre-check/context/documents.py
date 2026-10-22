@@ -82,34 +82,58 @@ REF_IN_BODY = r"(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/
 COLOUR_CONTEXT = re.compile(r"(?i)\b(?:colou?r|background|fill|stroke|border|outline|accent)(?:-[a-z]+)*\s*[:=]\s*[\"']?$")
 
 
+QUOTE_MARKER = re.compile(r"^ {0,3}>[ ]?")
+LIST_MARKER = re.compile(r"^ {0,3}(?:[-*+]|[0-9]{1,9}[.)])(?: +|$)")
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def containers(line):
+    """(block quote depth, content indent of a list item that starts on this
+    line or None, the line without its container markers)."""
+    depth, rest = 0, line
+    while True:
+        match = QUOTE_MARKER.match(rest)
+        if not match:
+            break
+        depth, rest = depth + 1, rest[match.end():]
+    indent = 0
+    while True:  # "- - item" opens nested items on one line
+        match = LIST_MARKER.match(rest)
+        if not match:
+            break
+        indent, rest = indent + match.end(), rest[match.end():]
+    return depth, (indent or None), rest
+
+
 def without_code(text):
     """TEXT without fenced code blocks and inline code spans, where a "#123"
     is code, not a reference."""
-    # Fenced blocks, as Markdown reads them: a block closes at a line with a run
-    # of the same character at least as long as the opening one and nothing
-    # else; an unclosed block runs to the end. A fence is indented by at most
-    # three spaces (with four, the line is indented code, not a fence), counted
-    # inside its containers: block quote markers are taken off, and so is the
-    # indentation of the list item a line belongs to.
-    kept, fence, item = [], None, 0
+    # Fenced blocks, as Markdown reads them, inside their containers (block
+    # quotes and list items): a fence is indented by at most three spaces
+    # within its container (with four it is indented code); a block closes at
+    # a run of the same character at least as long as the opener with nothing
+    # else on the line, or when the block quote or list item it opened in
+    # ends; an unclosed block otherwise runs to the end.
+    kept, fence, item = [], None, 0  # fence: (character, length, quote depth, item indent)
     for line in text.split("\n"):
-        inner = re.sub(r"^(?: {0,3}>[ ]?)+", "", line)
-        marker = re.match(r"^( {0,3}(?:[-*+]|[0-9]{1,9}[.)]) +)", inner)
-        if marker:
-            item = len(marker.group(1))
-            inner = inner[item:]
-        elif inner.strip() and item:
-            if len(inner) - len(inner.lstrip(" ")) >= item:
+        depth, new_item, inner = containers(line)
+        if new_item is not None:
+            item = new_item
+        elif inner.strip():
+            lead = len(inner) - len(inner.lstrip(" "))
+            if item and lead >= item:
                 inner = inner[item:]
-            elif fence is None:
+            else:
                 item = 0  # a line outside the item ends the list
-        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", inner)
+        if fence is not None and (depth < fence[2] or item < fence[3] or (new_item is not None and fence[3])):
+            fence = None  # its container ended; this line is read as usual
+        match = FENCE.match(inner)
         if fence is None:
             if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
-                fence = match.group(1)
+                fence = (match.group(1)[0], len(match.group(1)), depth, item)
                 continue
             kept.append(line)
-        elif match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
+        elif match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
             fence = None
     text = "\n".join(kept)
     # A code span is delimited by a run of backticks of equal length ("``#1``")

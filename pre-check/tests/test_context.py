@@ -282,6 +282,13 @@ class DocumentsTest(unittest.TestCase):
                 "1. step\n   ```\n   #127\n   ```")
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
 
+    def test_fences_end_with_their_container(self):
+        body = ("- - ~~~\n    #125\n    ~~~\nSee #126.\n"
+                "> ~~~\n> sample #127\nSee #128.\n"
+                "- item\n  ```\n  #129\nOutside the list #130.")
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
+                         ["gi-org-pl/app#126", "gi-org-pl/app#128", "gi-org-pl/app#130"])
+
     def test_many_references_stay_linear(self):
         import time
         start = time.monotonic()
