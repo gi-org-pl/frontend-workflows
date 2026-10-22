@@ -8,6 +8,7 @@ wrote are used; documents come only from the default branch of an allowed
 repository, pinned to a commit; every cut at a size limit is recorded.
 """
 
+import bisect
 import os
 import re
 
@@ -138,9 +139,43 @@ def without_code(text):
             continue
         kept.append(line)
     text = "\n".join(kept)
-    # A code span is delimited by a run of backticks of equal length ("``#1``")
-    # and may cross line endings within a paragraph, not a blank line.
-    return re.sub(r"(?s)(`+)(?!`)((?:(?!\n[ \t]*\n).)*?[^`])\1(?!`)", " ", text)
+    return without_code_spans(text)
+
+
+BLANK_LINE = re.compile(r"\n[ \t]*\n")
+
+
+def without_code_spans(text):
+    """TEXT without inline code spans, read left to right as Markdown does: a
+    span opens at a run of backticks that is not backslash-escaped and closes
+    at the next run of the same length within the paragraph (inside a span a
+    backslash escapes nothing); an escaped backtick is text."""
+    out, i, closers = [], 0, {}
+    blanks = [m.start() for m in BLANK_LINE.finditer(text)]  # paragraph ends, found once
+    while i < len(text):
+        char = text[i]
+        if char == "\\" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if char != "`":
+            out.append(char)
+            i += 1
+            continue
+        end = i
+        while end < len(text) and text[end] == "`":
+            end += 1
+        run = end - i
+        closer = closers.setdefault(run, re.compile(r"(?<!`)`{%d}(?!`)" % run))
+        following = bisect.bisect_left(blanks, end)
+        match = closer.search(text, end, blanks[following] if following < len(blanks) else len(text))
+        if match:
+            out.append(" ")
+            i = match.end()
+        else:
+            out.append(text[i:end])  # no closing run: the backticks are text
+            i = end
+    return "".join(out)
 
 
 def issue_refs(body, closing, repo):

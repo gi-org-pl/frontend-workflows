@@ -304,6 +304,10 @@ class DocumentsTest(unittest.TestCase):
         body = ">\t~~~\n>\t#125\n>\t~~~\nSee #126.\n-\t```\n\t#127\n\t```\nAnd #128."
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#126", "gi-org-pl/app#128"])
 
+    def test_escaped_backticks_are_text(self):
+        body = "See \\`issue #123\\`. A span `a\\` then #124 and `#1`."
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+
     def test_many_references_stay_linear(self):
         import time
         start = time.monotonic()
