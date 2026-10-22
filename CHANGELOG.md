@@ -22,7 +22,6 @@ policy](docs/INDEX.md#versioning).
 - **Issue references.** A number with a leading zero (`#004554`), one followed by a letter (`#12ab34`), the value of
   a colour declaration (`color: #333`) and anything inside code (any code span or fenced block) is no longer read as
   an issue reference.
-- Issue references: a blank quoted line ends a paragraph, so backticks do not pair across it.
 
 ## 1.1.0 - 2026-10-22
 
