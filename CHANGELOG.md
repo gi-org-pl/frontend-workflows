@@ -3,7 +3,7 @@
 All notable changes to the workflows of this repository. Versions follow [the versioning
 policy](docs/INDEX.md#versioning).
 
-## Unreleased
+## 2.0.0 - 2026-10-22
 
 - **"Needs a person" passes the check.** The outcome `human` now ends `frontend-pre-check / review` with success, a
   warning annotation "Needs a person's review: …", the `pre-check: human review` label and the heading
