@@ -76,9 +76,10 @@ CLOSING_WORD = r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)"
 # colour such as #004554 or #12ab34 is not read as an issue.
 NUMBER = r"([1-9][0-9]*)(?![0-9A-Za-z_])"
 REF_IN_BODY = r"(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/|((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#)" + NUMBER
-# A short reference right after a word about colours ("color: #333") is a
-# colour, not an issue.
-COLOUR_CONTEXT = re.compile(r"(?i)\b(colou?rs?|background|fill|stroke|border|hex|rgba?|palette)\b[^#\n]{0,24}$")
+# A short reference that is the value of a colour declaration ("color: #333",
+# "fill='#fff'") is a colour, not an issue; a mention near the word ("the
+# color bug #123") stays a reference.
+COLOUR_CONTEXT = re.compile(r"(?i)\b(?:colou?r|background|fill|stroke|border|outline|accent)(?:-[a-z]+)*\s*[:=]\s*[\"']?$")
 
 
 def without_code(text):
@@ -86,7 +87,8 @@ def without_code(text):
     is code, not a reference."""
     text = re.sub(r"(?ms)^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$", " ", text)
     text = re.sub(r"(?ms)^[ \t]*(`{3,}|~{3,}).*\Z", " ", text)  # an unclosed fence runs to the end
-    return re.sub(r"`[^`\n]*`", " ", text)
+    # A code span is delimited by a run of backticks of equal length ("``#1``").
+    return re.sub(r"(`+)(?!`)(.*?[^`])\1(?!`)", " ", text)
 
 
 def issue_refs(body, closing, repo):

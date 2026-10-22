@@ -267,6 +267,11 @@ class DocumentsTest(unittest.TestCase):
         self.assertEqual(refs, ["gi-org-pl/app#212", "gi-org-pl/app#207"])
         self.assertFalse(documents.valid_ref("gi-org-pl/app#04554", "gi-org-pl"))
 
+    def test_mentions_near_colour_words_and_code_spans_of_any_length(self):
+        body = ("See the color bug #123. For the colour picker, see #124. "
+                "Border: `#1`, ``#125``, ```#126``` and fill=\"#127\".")
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+
     def test_closing_issues_are_read_first(self):
         body = "See #1, #2 and gi-org-pl/other#3. Fixes #7, closes https://github.com/gi-org-pl/app/issues/8"
         refs = documents.issue_refs(body, ["gi-org-pl/app#9"], "gi-org-pl/app")

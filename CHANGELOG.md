@@ -17,8 +17,9 @@ All notable changes to the workflows of this repository. Versions follow [the ve
   steps, and the details folded (finding details, all decisions, scope). The reviewer's result changes with it: a
   finding title of at most 90 characters, decisions as `lead`, `detail` and `importance`, a one-sentence `summary`
   (at most 200), at most five `qa` steps.
-- **Issue references.** A number with a leading zero (`#004554`), one followed by a letter (`#12ab34`), one right
-  after a word about colours (`color: #333`) and anything inside code is no longer read as an issue reference.
+- **Issue references.** A number with a leading zero (`#004554`), one followed by a letter (`#12ab34`), the value of
+  a colour declaration (`color: #333`) and anything inside code (any code span or fenced block) is no longer read as
+  an issue reference.
 
 ## 1.1.0 - 2026-10-22
 
