@@ -308,6 +308,20 @@ class DocumentsTest(unittest.TestCase):
         body = "See \\`issue #123\\`. A span `a\\` then #124 and `#1`."
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
 
+    def test_a_blank_quoted_line_ends_the_paragraph(self):
+        refs = lambda body: documents.issue_refs(body, [], "gi-org-pl/app")
+        # The backticks cannot pair across the quoted blank line: they are text.
+        self.assertEqual(refs("> `See #123\n>\n> continued`"), ["gi-org-pl/app#123"])
+        # Nested quotes, with and without spaces between the markers.
+        self.assertEqual(refs("> > `See #123\n> >\n> > continued`"), ["gi-org-pl/app#123"])
+        self.assertEqual(refs("> > `See #123\n>>\n> > continued`"), ["gi-org-pl/app#123"])
+        self.assertEqual(refs("> > `See #123\n> \n> > continued`"), ["gi-org-pl/app#123"])
+        # A real span inside one quoted paragraph is still code.
+        self.assertEqual(refs("> `see #123\n> continued` and #124"), ["gi-org-pl/app#124"])
+        self.assertEqual(refs("> > `see #123\n> > continued` and #124"), ["gi-org-pl/app#124"])
+        # Fenced blocks are still code.
+        self.assertEqual(refs("> ~~~\n> #125\n>\n> ~~~\nSee #126."), ["gi-org-pl/app#126"])
+
     def test_many_references_stay_linear(self):
         import time
         start = time.monotonic()

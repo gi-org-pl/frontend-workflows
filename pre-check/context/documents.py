@@ -142,7 +142,9 @@ def without_code(text):
     return without_code_spans(text)
 
 
-BLANK_LINE = re.compile(r"\n[ \t]*\n")
+# A paragraph ends at a blank line, and at a line holding only block-quote
+# markers ("> >"): a code span never crosses either.
+BLANK_LINE = re.compile(r"\n[ \t]*(?:>[ \t]*)*(?=\n|\Z)")
 
 
 def without_code_spans(text):
