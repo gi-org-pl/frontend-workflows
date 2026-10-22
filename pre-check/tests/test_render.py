@@ -2,11 +2,25 @@
 plain-text escaping, allowlisted links, and that display limits do not touch
 the outcome."""
 
+import copy
+import os
+import re
+import sys
 import unittest
+from unittest import mock
 
 import fakes  # noqa: F401  (import paths)
 import render
+import typical
 from test_evaluate import finding, outcome, result, scope
+
+SNAPSHOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots", "typical-comment.txt")
+
+
+def typical_comment(res=None, sc=None, coverage="full"):
+    res, sc = res or copy.deepcopy(typical.RESULT), sc or copy.deepcopy(typical.SCOPE)
+    with mock.patch.dict(os.environ, typical.ENV):
+        return render.render(res, sc, outcome(res, sc, coverage), coverage)
 
 
 def rendered(res, sc=None):
@@ -35,7 +49,7 @@ class PublicationTest(unittest.TestCase):
         findings = [finding(title="a{}".format(i)) for i in range(30)] + [finding("blocking", title="the blocker")]
         comment, _ = rendered(result(findings))
         self.assertIn("the blocker", comment)
-        self.assertIn("changes needed - 1 blocking", comment)
+        self.assertIn("## Pre-check: ❌ changes needed · 1 blocking, 30 minor findings", comment)
         self.assertIn("31 findings were returned", comment)
 
     def test_identical_titles_at_two_lines_stay_distinct(self):
@@ -45,7 +59,7 @@ class PublicationTest(unittest.TestCase):
 
     def test_advisory_is_not_called_no_findings(self):
         comment, _ = rendered(result([finding()]))
-        self.assertIn("1 advisory finding", comment)
+        self.assertIn("## Pre-check: ✅ passed · 1 minor finding\n", comment)
         self.assertNotIn("no findings", comment)
 
 
@@ -117,11 +131,87 @@ class UnreadContextTest(unittest.TestCase):
     def test_unread_context_is_listed_and_the_result_says_why_it_is_not_clean(self):
         sc = scope(unread_context=["the linked document gi-org-pl/product/a.md (it could not be read)"])
         comment, _ = render.render(result(), sc, outcome(result(), sc), "full")
-        self.assertIn("passed - the reviewer reported no findings. Not clean", comment)
+        self.assertIn("## Pre-check: ✅ passed · no findings", comment)
         self.assertIn("Not clean: some linked context was not read in full", comment)
         self.assertIn("Linked context not read in full (does not need a person by itself)", comment)
         self.assertIn(r"gi\-org\-pl/product/a\.md", comment)
 
 
+def visible(comment):
+    """What a reader sees before opening anything: the comment without its
+    folded blocks and hidden markers."""
+    folded = re.sub(r"(?s)<details>.*?</details>", "", comment)
+    return re.sub(r"<!--.*?-->", "", folded)
+
+
+class CompactCommentTest(unittest.TestCase):
+    def test_typical_result_matches_the_snapshot(self):
+        comment, _ = typical_comment()
+        with open(SNAPSHOT, encoding="utf-8") as fh:
+            self.assertEqual(comment, fh.read())
+
+    def test_typical_result_is_short_before_the_folds(self):
+        comment, _ = typical_comment()
+        self.assertLess(len(visible(comment)), 3000)
+        self.assertIn("## Pre-check: ✅ passed · 3 minor findings", comment)
+        self.assertEqual(comment.count("<details>"), 4)  # findings, decisions, scope, excluded files
+
+    def test_where_links_are_built_from_the_scope(self):
+        comment, _ = typical_comment()
+        self.assertIn("[authClient\\.ts\\:4](https://github.com/gi-org-pl/mypolitics-app/blob/{}/"
+                      "src/services/auth/client/authClient.ts#L4)".format(typical.HEAD), comment)
+        res = copy.deepcopy(typical.RESULT)
+        res["findings"][0]["path"] = "https://evil.example/x.ts"
+        comment, _ = typical_comment(res)
+        # A path that is not a changed file is shown as code (never a link).
+        self.assertIn("| `x.ts:4` |", comment)
+        self.assertNotIn("](https://evil", comment)
+
+    def test_a_pipe_in_a_title_stays_in_its_cell(self):
+        res = copy.deepcopy(typical.RESULT)
+        res["findings"][0]["title"] = "Union `a | b` and a | c"
+        comment, _ = typical_comment(res)
+        row = next(line for line in comment.split("\n") if line.startswith("| 🟡 | Union"))
+        self.assertEqual(len(re.findall(r"(?<!\\)\|", row)), 4)
+
+    def test_needs_a_person_headline_and_status(self):
+        sc = copy.deepcopy(typical.SCOPE)
+        sc["workflow_changes"] = [".github/workflows/ci.yml"]
+        sc["human_paths"] = [{"path": ".github/workflows/ci.yml", "reason": "CI workflow"}]
+        comment, _ = typical_comment(sc=sc)
+        self.assertIn("## Pre-check: ⚠️ needs a person (it changes CI workflows) · 3 minor findings", comment)
+        self.assertIn("The check passes: this pull request needs a person's review and approval", comment)
+
+    def test_changes_headline(self):
+        res = copy.deepcopy(typical.RESULT)
+        res["findings"][0]["severity"] = "blocking"
+        comment, _ = typical_comment(res)
+        self.assertIn("## Pre-check: ❌ changes needed · 1 blocking, 2 minor findings", comment)
+        self.assertIn("| 🔴 | The stand", comment)
+
+    def test_more_than_five_decisions_are_folded(self):
+        res = copy.deepcopy(typical.RESULT)
+        res["decisions"]["new_dependencies"] = [typical.decision("dep{}".format(i), "added.", "low") for i in range(3)]
+        comment, _ = typical_comment(res)
+        top = comment.split("**Decisions to look at**")[1].split("**For QA**")[0]
+        self.assertEqual(top.count("\n- **"), 5)
+        self.assertTrue(top.strip().startswith("- **Session state**"))  # high first, in category order
+        self.assertIn("<summary>All technical decisions (10)</summary>", comment)
+        self.assertIn("dep2", comment.split("All technical decisions")[1])
+
+    def test_qa_steps_are_capped_for_display(self):
+        res = copy.deepcopy(typical.RESULT)
+        res["qa"] = ["step {}".format(i) for i in range(8)]
+        comment, _ = typical_comment(res)
+        self.assertIn("5. step 4", comment)
+        self.assertNotIn("6. step 5", comment)
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if "--update" in sys.argv:
+        os.makedirs(os.path.dirname(SNAPSHOT), exist_ok=True)
+        with open(SNAPSHOT, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(typical_comment()[0])
+        print("Updated " + SNAPSHOT)
+    else:
+        unittest.main()

@@ -72,20 +72,37 @@ def inside(target, base):
 
 
 CLOSING_WORD = r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)"
-REF_IN_BODY = r"(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/|((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#)([0-9]+)"
+# An issue number has no leading zero and is not followed by a letter, so a
+# colour such as #004554 or #12ab34 is not read as an issue.
+NUMBER = r"([1-9][0-9]*)(?![0-9A-Za-z_])"
+REF_IN_BODY = r"(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/|((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#)" + NUMBER
+# A short reference right after a word about colours ("color: #333") is a
+# colour, not an issue.
+COLOUR_CONTEXT = re.compile(r"(?i)\b(colou?rs?|background|fill|stroke|border|hex|rgba?|palette)\b[^#\n]{0,24}$")
+
+
+def without_code(text):
+    """TEXT without fenced code blocks and inline code spans, where a "#123"
+    is code, not a reference."""
+    text = re.sub(r"(?ms)^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$", " ", text)
+    text = re.sub(r"(?ms)^[ \t]*(`{3,}|~{3,}).*\Z", " ", text)  # an unclosed fence runs to the end
+    return re.sub(r"`[^`\n]*`", " ", text)
 
 
 def issue_refs(body, closing, repo):
     """Candidate references, unique, in the order they are read: the issues
     the pull request closes (GitHub's closing references, then the ones the
     description names after "closes", "fixes" or "resolves"), then the other
-    mentions in order."""
+    mentions in order. Code and colours are not references."""
+    body = without_code(body)
     found = list(closing)
     for m in re.finditer(r"(?i)\b" + CLOSING_WORD + r":?\s+" + REF_IN_BODY, body):
         found.append("{}#{}".format(m.group(1) or m.group(2) or repo, m.group(3)))
     found += ["{}#{}".format(m.group(1), m.group(2)) for m in
-              re.finditer(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([0-9]+)", body)]
-    for m in re.finditer(r"(?:^|[^A-Za-z0-9_/.-])((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#([0-9]+)", body):
+              re.finditer(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/" + NUMBER, body)]
+    for m in re.finditer(r"(?:^|[^A-Za-z0-9_/.-])((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#" + NUMBER, body):
+        if not m.group(1) and COLOUR_CONTEXT.search(body[:m.start(2) - 1]):
+            continue
         found.append("{}#{}".format(m.group(1) or repo, m.group(2)))
     seen, out = set(), []
     for ref in found:
@@ -96,7 +113,7 @@ def issue_refs(body, closing, repo):
 
 
 def valid_ref(ref, owner):
-    match = re.match(r"^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([0-9]{1,7})$", ref)
+    match = re.match(r"^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([1-9][0-9]{0,6})$", ref)
     if not match:
         return False
     ref_owner, name, _ = match.groups()

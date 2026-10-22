@@ -72,7 +72,7 @@ EOF
 report() { RESULT_FILE="$T/result.json" SCOPE_FILE="$T/scope.json" COVERAGE=full bash "$HERE/report.sh" report; }
 
 check "a skip fails the required check" 1 env SKIP_REASON="the pull request comes from a fork." bash "$HERE/report.sh" notchecked
-posted_has "not pre-checked" || { echo "FAIL skip comment"; failures=$((failures + 1)); }
+posted_has "## Pre-check: ⏭️ not pre-checked · the pull request comes from a fork" || { echo "FAIL skip headline"; failures=$((failures + 1)); }
 
 entry() { echo "{\"position\":$1,\"headCommit\":{\"oid\":\"$2\"},\"pullRequest\":{\"number\":$3}}"; }
 queue_of() { echo "{\"data\":{\"repository\":{\"mergeQueue\":{\"entries\":{\"nodes\":[$1]}}}}}"; }
@@ -118,16 +118,22 @@ if grep -q "issues/1/comments -F" "$FAKE_LOG"; then echo "FAIL draft run posted"
 check "a draft skip still withdraws and comments" 1 env FAKE_DRAFT=true SKIP_REASON="the pull request is a draft." bash "$HERE/report.sh" notchecked
 posted_has "not pre-checked" || { echo "FAIL draft skip comment"; failures=$((failures + 1)); }
 
-check "an incomplete reading fails" 1 bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
+# "human" passes - a person's approval is the gate - with a warning annotation and the label.
+check "an incomplete reading needs a person and passes with a warning" 0 bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
+grep -q "::warning title=Pre-check::Needs a person's review: the reviewer did not read the whole diff." "$T/out" || { echo "FAIL human warning annotation"; failures=$((failures + 1)); }
+labelled "pre-check: human review" || { echo "FAIL human label"; failures=$((failures + 1)); }
+posted_has "## Pre-check: ⚠️ needs a person (the reviewer did not read the whole diff)" || { echo "FAIL human headline"; failures=$((failures + 1)); }
 
 mk_result '[{"severity":"non-blocking","path":"src/a.ts","title":"t","body":"password = hunter2hunter2x","inline":false}]'
-check "a credential-like output is withheld and fails" 1 report
+check "a credential-like output is withheld and needs a person" 0 report
+posted_has "the reviewer's output was withheld" || { echo "FAIL withheld headline"; failures=$((failures + 1)); }
 if posted_has "hunter2"; then echo "FAIL leaked value published"; failures=$((failures + 1)); fi
 
 echo '{"result":"bogus"}' > "$T/result.json"
 check "an invalid result fails" 1 report
 
 check "an unfinished run fails" 1 env REASON=failed bash "$HERE/report.sh" error
+posted_has "## Pre-check: ❌ not finished · the reviewer did not complete" || { echo "FAIL error headline"; failures=$((failures + 1)); }
 
 # Same head, newer event: GitHub does not keep the publishers in event order.
 # An older run that publishes after the newer one must change nothing and fail.
@@ -170,7 +176,7 @@ printf '%s' "$SJ" > "$T/empty/scope.json"
 check "publish: a clean analysis passes" 0 env GATE=success VERDICT=run ANALYSE=success RESULT_DIR="$T/artifact" COVERAGE=full bash "$HERE/report.sh" publish
 check "publish: a missing result fails" 1 env GATE=success VERDICT=run ANALYSE=success RESULT_DIR="$T/empty" bash "$HERE/report.sh" publish
 printf '%s' '{"withheld": true}' > "$T/artifact/result.json"
-check "publish: a result withheld in the analyse job fails" 1 env GATE=success VERDICT=run ANALYSE=success RESULT_DIR="$T/artifact" COVERAGE=full bash "$HERE/report.sh" publish
+check "publish: a result withheld in the analyse job needs a person" 0 env GATE=success VERDICT=run ANALYSE=success RESULT_DIR="$T/artifact" COVERAGE=full bash "$HERE/report.sh" publish
 posted_has "withheld" || { echo "FAIL withheld comment"; failures=$((failures + 1)); }
 check "an API failure while publishing fails" 1 env FAKE_FAIL="api repos/gi-org-pl/x/pulls/1" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
 

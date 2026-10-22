@@ -22,7 +22,7 @@ import json
 import os
 import re
 import sys
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -38,6 +38,22 @@ MAX_ITEMS = 20
 MAX_SHOWN = 30
 MAX_INLINE = 15
 MAX_BODY = 3000
+MAX_LOOK = 5      # decisions shown outside the folded list
+MAX_QA = 5        # QA steps shown
+MAX_LISTED = 10   # guide documents named in the scope line
+HEADLINES = {
+    "clean": "✅ clean",
+    "advisory": "✅ passed",
+    "changes": "❌ changes needed",
+    "human": "⚠️ needs a person",
+    "invalid": "❌ not finished",
+    "skipped": "⏭️ not pre-checked",
+    "queued": "✅ queued",
+    "unqueued": "❌ not queued",
+}
+DOTS = {"blocking": "🔴", "non-blocking": "🟡"}
+IMPORTANCE = {"high": 0, "medium": 1, "low": 2}
+SAFE_PATH = re.compile(r"^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$")
 
 LINK_SHAPE = re.compile(
     r"^https://(github\.com/gi-org-pl/|gi\.org\.pl/|(www\.)?figma\.com/)[A-Za-z0-9._~/?=&%:+#-]*$"
@@ -146,6 +162,11 @@ def code(name):
     return "`{}`".format(str(name).replace("`", "'"))
 
 
+def cell(text):
+    """Text for a table cell: a pipe would end the cell, also inside a code span."""
+    return text.replace("|", "\\|")
+
+
 def fingerprint(f):
     identity = "\n".join([f["path"], str(f.get("line") or ""), f.get("side", "RIGHT"), " ".join(f["title"].lower().split())])
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
@@ -156,33 +177,115 @@ def footer():
     model = re.sub(r"[^A-Za-z0-9._-]", "", os.environ.get("MODEL", ""))[:64] or "default"
     workflow = re.sub(r"[^0-9a-f]", "", os.environ.get("WORKFLOW_SHA", ""))[:40]
     run_url = os.environ.get("RUN_URL", "")
-    return (
-        "\n\n<sub>AI pre-check of commit `{}` with model `{}` ([workflow run]({})), following "
-        "[the reviewer instructions](https://github.com/gi-org-pl/frontend-workflows/blob/{}/docs/pre-check/REVIEWER.md). "
-        "Advisory only: the reviewer can be misled by the content it reviews and can miss things; a clean result is "
-        "never a person's sign-off. The result that counts is the `frontend-pre-check / review` check of the head "
-        "commit.</sub>"
-    ).format(head, model, run_url if allowed_link(run_url) else "", workflow)
+    run = "[run]({})".format(run_url) if allowed_link(run_url) else "run"
+    instructions = "https://github.com/gi-org-pl/frontend-workflows/blob/{}/docs/pre-check/REVIEWER.md".format(workflow)
+    return "\n\n<sub>AI pre-check of `{}` · `{}` · {} · [instructions]({}) · advisory, not an approval</sub>".format(
+        head, model, run, instructions if allowed_link(instructions) else "")
 
 
-def result_line(evaluation):
-    outcome, reasons = evaluation["outcome"], evaluation["reasons"]
-    if outcome == "clean":
-        return "**Result:** clean - the reviewer reported no findings. This is not an approval and not a proof that the change is safe."
-    if outcome == "advisory":
-        if evaluation["advisory"]:
-            line = "**Result:** passed with {} advisory finding(s) and no blocking one.".format(evaluation["advisory"])
-        else:
-            line = "**Result:** passed - the reviewer reported no findings."
-        if evaluation.get("notes"):
-            line += " Not clean: " + "; ".join(evaluation["notes"]) + " (see What was not checked)."
-        return line + " This is not an approval."
-    if outcome == "changes":
-        line = "**Result:** changes needed - {} blocking finding(s).".format(evaluation["blocking"])
-        if reasons:
-            line += "\n\nA person has to look at it in any case: " + "; ".join(reasons) + "."
-        return line
-    return "**Result:** needs a person's review - " + "; ".join(reasons) + ". The pre-check does not pass such a pull request."
+def count_line(evaluation):
+    blocking, minor = evaluation["blocking"], evaluation["advisory"]
+    if not blocking and not minor:
+        return "no findings"
+    parts = (["{} blocking".format(blocking)] if blocking else []) + (["{} minor".format(minor)] if minor else [])
+    return ", ".join(parts) + (" finding" if blocking + minor == 1 else " findings")
+
+
+def headline(evaluation):
+    """The heading: icon, outcome, the reason in a few words, the count. The
+    reasons are fixed texts of contracts.py and evaluate.py, never model text."""
+    outcome = evaluation["outcome"]
+    text = HEADLINES[outcome]
+    if outcome == "human":
+        text += " ({})".format("; ".join(evaluation["reasons"]))
+    return "## Pre-check: {} · {}".format(text, count_line(evaluation))
+
+
+def status_lines(evaluation):
+    outcome = evaluation["outcome"]
+    if outcome == "human":
+        return ["The check passes: this pull request needs a person's review and approval, which is the gate. "
+                "This is not an approval."]
+    if outcome == "changes" and evaluation["reasons"]:
+        return ["A person has to look at it in any case: " + "; ".join(evaluation["reasons"]) + "."]
+    if outcome == "advisory" and evaluation.get("notes"):
+        return ["Not clean: " + "; ".join(evaluation["notes"]) + " (see Scope below)."]
+    return []
+
+
+def where(f, scope):
+    """file:line of a finding, linked to the commit it is about - the link is
+    built here from the scope, never taken from the model."""
+    path, line, side = f["path"], f.get("line"), f.get("side", "RIGHT")
+    label = path.rsplit("/", 1)[-1] + (":{}".format(line) if line else "")
+    repo = os.environ.get("REPO", "")
+    changed = set(scope["hunks"]) | set(scope["reviewed"]) | {u["path"] for u in scope["unreviewable"]}
+    sha = scope["base"] if side == "LEFT" else scope["head"]
+    if (path in changed and SAFE_PATH.match(path) and re.match(r"^gi-org-pl/[A-Za-z0-9._-]+$", repo)
+            and re.match(r"^[0-9a-f]{40}$", sha)):
+        url = "https://github.com/{}/blob/{}/{}{}".format(repo, sha, quote(path), "#L{}".format(line) if line else "")
+        if allowed_link(url):
+            return "[{}]({})".format(plain(label), url)
+    return code(label)
+
+
+def ranked_decisions(result):
+    """Every decision with its category, the most important first, otherwise
+    in the order of the categories and of the reviewer's list."""
+    rows = [(IMPORTANCE.get(d["importance"], 3), i, label, d)
+            for i, (key, label) in enumerate(CATEGORIES) for d in result["decisions"][key]]
+    return [(label, d) for _, _, label, d in sorted(rows, key=lambda r: (r[0], r[1]))]
+
+
+def decision_line(d):
+    return "- **{}** {}".format(one_line(d["lead"], 80), one_line(d["detail"], 400))
+
+
+def scope_lines(result, scope, coverage):
+    reading = {"full": "read in full", "partial": "not read in full", "none": "reading not observed"}.get(coverage, "reading not observed")
+    checked = "- Checked: {} file(s), {} changed lines of {} against {} ({}); gi-tech-standards {}".format(
+        len(scope["reviewed"]), scope["diff_lines"], code(scope["head"][:7]), code(scope["base"][:7]), reading,
+        code(scope["standards"][:7]))
+    if scope["repo_docs"]:
+        checked += "; the repository guide: " + ", ".join(code(d) for d in scope["repo_docs"][:MAX_LISTED])
+        if len(scope["repo_docs"]) > MAX_LISTED:
+            checked += " and {} more".format(len(scope["repo_docs"]) - MAX_LISTED)
+    lines = [checked + "."]
+    lines.append("- Linked issues read: " + (", ".join(code(i) for i in scope["issues"]) if scope["issues"] else "none found")
+                 + " (members of the organisation only).")
+    if scope["docs"]:
+        lines.append("- Linked documents read: " + ", ".join(code(d) for d in scope["docs"]) + ".")
+    lines += ["- " + one_line(item, 400) for item in result["checked"][:MAX_ITEMS]]
+
+    lines.append("- Not checked: runtime behaviour - nothing was built, run or tested.")
+    if scope["truncated"]:
+        text = "- **Too large for a full pre-check** (cap: {} changed lines).".format(scope["max_diff_lines"])
+        if scope["not_reviewed"]:
+            text += " Not reviewed: " + ", ".join(code(n) for n in scope["not_reviewed"]) + "."
+        lines.append(text)
+    lines += ["- No reviewable diff: {} - {}.".format(code(u["path"]), u["reason"]) for u in scope["unreviewable"]]
+    lines += ["- Needs a person: {} - {}.".format(code(u["path"]), u["reason"]) for u in scope["human_paths"]]
+    lines += ["- Renamed or copied: {} to {}.".format(code(r["from"]), code(r["to"])) for r in scope["renamed"]]
+    if scope["safe_assets"]:
+        lines.append("- Images, listed but not inspected: " + ", ".join(code(n) for n in scope["safe_assets"]) + ".")
+    if scope["figma"]:
+        links = " ".join("[{}]({})".format(i + 1, url) for i, url in enumerate(scope["figma"]) if allowed_link(url))
+        lines.append("- Figma: judged only from the design comparison in the description; the reviewer sees neither Figma nor images. Links: " + links + ".")
+    lines += ["- Cut at its size limit or not available: " + one_line(c, 200) + "." for c in scope["cut_sources"]]
+    lines += ["- Linked context not read in full (does not need a person by itself): " + one_line(u, 400) + "."
+              for u in scope["unread_context"]]
+    lines += ["- " + one_line(n, 400) for n in scope["notes"]]
+    lines += ["- " + one_line(item, 400) for item in result["not_checked"][:MAX_ITEMS]]
+    if scope["excluded"]:
+        lines += ["", "<details><summary>Left out of the diff by policy: {} file(s), {} changed lines</summary>".format(
+            len(scope["excluded"]), scope["excluded_lines"]), ""]
+        lines += ["- " + code(n) for n in scope["excluded"]]
+        lines += ["", "</details>"]
+    return lines
+
+
+def details(summary, body_lines):
+    return ["", "<details><summary>{}</summary>".format(summary), ""] + body_lines + ["", "</details>"]
 
 
 def render(result, scope, evaluation, coverage):
@@ -194,83 +297,62 @@ def render(result, scope, evaluation, coverage):
         return bool(f.get("line")) and any(h[side][0] <= f["line"] <= h[side][1] for h in scope["hunks"].get(f["path"], []))
 
     body_limit = MAX_BODY if len(shown) <= 10 else 1200
-    inline, entries = [], []
+    inline, rows, entries = [], [], []
     for f in shown:
         fp = fingerprint(f)
-        title = one_line(f["title"], 200)
+        dot = DOTS[f["severity"]]
+        title = one_line(f["title"], 90)
         body = multi_line(f.get("body", ""), body_limit)
         marker = ""
         if f.get("inline") and in_diff(f) and len(inline) < MAX_INLINE:
             inline.append({
                 "path": f["path"], "line": f["line"], "side": f.get("side", "RIGHT"), "fingerprint": fp,
-                "body": "**[{}]** {}\n\n{}\n\nThe Pre-check comment of this pull request holds every finding.\n\n{}".format(
-                    f["severity"], title, body, FINDING_MARKER.format(fp)),
+                "body": "{} **[{}]** {}\n\n{}\n\nThe Pre-check comment of this pull request holds every finding.\n\n{}".format(
+                    dot, f["severity"], title, body, FINDING_MARKER.format(fp)),
             })
             # report.sh replaces the marker once it knows whether the comment
             # was attached; model text cannot contain "<", so cannot forge one.
             marker = "<!-- inline {} -->".format(fp)
-        where = code(f["path"] + (":{}".format(f["line"]) if f.get("line") else ""))
-        entries.append("#### [{}] {}\n\n{}{}\n\n{}".format(f["severity"], title, where, marker, body or "(no details given)"))
+        rows.append("| {} | {} | {} |".format(dot, cell(title), cell(where(f, scope))))
+        location = code(f["path"] + (":{}".format(f["line"]) if f.get("line") else ""))
+        entries.append("**{} {}** - {}{}\n\n{}".format(dot, title, location, marker, body or "(no details given)"))
 
-    lines = [result_line(evaluation), "", "Reviewer's summary: " + one_line(result["summary"], 600)]
-    if entries:
-        lines += ["", "### Findings", ""]
+    lines = [headline(evaluation), "", one_line(result["summary"], 200)]
+    status = status_lines(evaluation)
+    if status:
+        lines += [""] + status
+    if rows:
+        lines += ["", "**Findings**", "", "| | Finding | Where |", "|---|---|---|"] + rows
         if len(findings) > len(shown):
-            lines += ["{} findings were returned; the first {} are shown, blocking ones first. The result above counts all of them.".format(len(findings), len(shown)), ""]
-        lines.append("\n\n".join(entries))
+            lines += ["", "{} findings were returned; the first {} are shown, blocking ones first. The heading counts all of them.".format(
+                len(findings), len(shown))]
 
-    lines += ["", "### Technical decisions in this PR"]
+    ranked = ranked_decisions(result)
+    if ranked:
+        lines += ["", "**Decisions to look at**", ""] + [decision_line(d) for _, d in ranked[:MAX_LOOK]]
+    lines += ["", "**For QA**", ""]
+    qa = result["qa"][:MAX_QA]
+    lines += ["{}. {}".format(i + 1, one_line(step, 300)) for i, step in enumerate(qa)] or ["Nothing specific beyond the issue's acceptance criteria."]
+
+    if entries:
+        lines += details("Finding details ({})".format(len(shown)), ["\n\n".join(entries)])
+    all_decisions = []
     for key, label in CATEGORIES:
-        lines += ["", "**{}**".format(label), ""]
-        lines += ["- " + one_line(item, 400) for item in result["decisions"][key][:MAX_ITEMS]] or ["- None."]
-
-    reading = {"full": "complete", "partial": "incomplete", "none": "not observed"}.get(coverage, "not observed")
-    lines += ["", "### What was checked", ""]
-    lines.append("- The diff of {} file(s), {} changed lines, of head commit {} against base commit {} - the head as it is, not the result of merging it. Files in risk order (application code first); the reviewer's reading of the diff: {}.".format(
-        len(scope["reviewed"]), scope["diff_lines"], code(scope["head"][:7]), code(scope["base"][:7]), reading))
-    lines.append("- Linked issues: " + (", ".join(code(i) for i in scope["issues"]) if scope["issues"] else "none found") + " (members of the organisation only).")
-    lines.append("- Standards: gi-tech-standards at {}; the repository guide on the base branch: {}.".format(
-        code(scope["standards"][:7]), ", ".join(code(d) for d in scope["repo_docs"]) if scope["repo_docs"] else "none found"))
-    if scope["docs"]:
-        lines.append("- Linked documents (default branch): " + ", ".join(code(d) for d in scope["docs"]) + ".")
-    lines += ["- " + one_line(item, 400) for item in result["checked"][:MAX_ITEMS]]
-
-    lines += ["", "### What was not checked", "", "- Runtime behaviour: nothing was built, run or tested by the pre-check."]
-    if scope["truncated"]:
-        text = "- **Too large for a full pre-check** (cap: {} changed lines).".format(scope["max_diff_lines"])
-        if scope["not_reviewed"]:
-            text += " Not reviewed: " + ", ".join(code(n) for n in scope["not_reviewed"]) + "."
-        lines.append(text)
-    lines += ["- No reviewable diff: {} - {}.".format(code(u["path"]), u["reason"]) for u in scope["unreviewable"]]
-    lines += ["- Needs a person: {} - {}.".format(code(u["path"]), u["reason"]) for u in scope["human_paths"]]
-    lines += ["- Renamed or copied: {} to {}.".format(code(r["from"]), code(r["to"])) for r in scope["renamed"]]
-    if scope["excluded"]:
-        lines.append("- Left out of the diff by policy ({} file(s), {} changed lines): {}.".format(
-            len(scope["excluded"]), scope["excluded_lines"], ", ".join(code(n) for n in scope["excluded"])))
-    if scope["safe_assets"]:
-        lines.append("- Images, listed but not inspected: " + ", ".join(code(n) for n in scope["safe_assets"]) + ".")
-    if scope["figma"]:
-        links = " ".join("[{}]({})".format(i + 1, url) for i, url in enumerate(scope["figma"]) if allowed_link(url))
-        lines.append("- Visual fidelity against the Figma design was judged only from the design comparison in the pull request description: the reviewer checks that it is there and covers the changed views, but sees neither Figma nor the images. Figma links: " + links + ".")
-    lines += ["- Cut at its size limit or not available: " + one_line(c, 200) + "." for c in scope["cut_sources"]]
-    lines += ["- Linked context not read in full (does not need a person by itself): " + one_line(u, 400) + "."
-              for u in scope["unread_context"]]
-    lines += ["- " + one_line(n, 400) for n in scope["notes"]]
-    lines += ["- " + one_line(item, 400) for item in result["not_checked"][:MAX_ITEMS]]
-
-    lines += ["", "### For QA", ""]
-    lines += ["- " + one_line(item, 400) for item in result["qa"][:MAX_ITEMS]] or ["- Nothing specific beyond the issue's acceptance criteria."]
+        items = result["decisions"][key][:MAX_ITEMS]
+        all_decisions += ["", "**{}**".format(label), ""] + ([decision_line(d) for d in items] or ["- None."])
+    lines += details("All technical decisions ({})".format(len(ranked)), all_decisions[1:])
+    lines += details("Scope: what was and was not checked", scope_lines(result, scope, coverage))
 
     body = "\n".join(lines)
     if len(body) > MAX_COMMENT:
-        body = body[:MAX_COMMENT] + "\n\n(The rest was cut: the comment would be too long. The result above counts every finding.)"
-    return MARKER + "\n## Pre-check\n\n" + body + footer() + "\n", inline
+        body = body[:MAX_COMMENT] + "\n\n(The rest was cut: the comment would be too long. The heading counts every finding.)"
+    return MARKER + "\n" + body + footer() + "\n", inline
 
 
 def withheld_notice():
-    return (MARKER + "\n## Pre-check\n\n**Result:** withheld - the reviewer's output contains text that looks like a "
-            "credential, so it is not published. A person reviews the pull request; ask an organisation owner to look "
-            "at the workflow run if a credential may be involved." + footer() + "\n")
+    return (MARKER + "\n## Pre-check: ⚠️ needs a person (the reviewer's output was withheld)\n\nThe reviewer's output "
+            "contains text that looks like a credential, so it is not published. A person reviews the pull request; ask "
+            "an organisation owner to look at the workflow run if a credential may be involved." + footer() + "\n")
 
 
 def main(argv):

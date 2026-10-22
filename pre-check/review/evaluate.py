@@ -64,7 +64,7 @@ def leaks(text):
 
 def model_texts(result):
     texts = [result["summary"]] + result["checked"] + result["not_checked"] + result["qa"]
-    texts += [item for items in result["decisions"].values() for item in items]
+    texts += [d["lead"] + "\n" + d["detail"] for items in result["decisions"].values() for d in items]
     texts += [f["title"] + "\n" + f.get("body", "") for f in result["findings"]]
     return texts
 

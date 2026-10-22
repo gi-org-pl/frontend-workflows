@@ -259,6 +259,14 @@ class DocumentsTest(unittest.TestCase):
         self.assertEqual(len(ctx.unread), 1)
         self.assertIn("not read: " + refs[-1], ctx.unread[0])
 
+    def test_colours_and_code_are_not_issue_references(self):
+        body = ("Background `#004554` and colour #004554, text color: #333, accent #12ab34.\n"
+                "```css\n.a { color: #445566; } /* #77 */\n```\n"
+                "Part of #212, see `#99` in code. Closes #0207 and #207.")
+        refs = documents.issue_refs(body, [], "gi-org-pl/app")
+        self.assertEqual(refs, ["gi-org-pl/app#212", "gi-org-pl/app#207"])
+        self.assertFalse(documents.valid_ref("gi-org-pl/app#04554", "gi-org-pl"))
+
     def test_closing_issues_are_read_first(self):
         body = "See #1, #2 and gi-org-pl/other#3. Fixes #7, closes https://github.com/gi-org-pl/app/issues/8"
         refs = documents.issue_refs(body, ["gi-org-pl/app#9"], "gi-org-pl/app")

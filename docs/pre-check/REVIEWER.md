@@ -171,10 +171,16 @@ the scope of the diff, not from what you put in `result`: a pull request that wa
 resolution, or has files too large to show always goes to a person. Fill every field:
 
 - `result` - `"changes"` if there is at least one blocking finding, `"passed"` otherwise.
-- `summary` - one or two plain sentences: what the pull request does.
+- `summary` - one plain sentence, at most 200 characters: what the pull request does.
 - `decisions` - the technical decisions the pull request makes, neutrally, so that a person can accept or reject each
-  one. One entry per decision, with the file it lives in. Mark a decision that departs from the issue or from the
-  standard with "Deviation:" at the start. Leave a category empty when the pull request makes no decision of that kind.
+  one. Leave a category empty when the pull request makes no decision of that kind. Each decision has:
+  - `lead` - a few words that name it (at most 80 characters), shown in bold: "Session state", "Client behind an
+    interface". Start it with "Deviation:" when the decision departs from the issue or from the standard.
+  - `detail` - one sentence that continues the lead (at most 400 characters), with the file it lives in when that
+    helps: "lives in `useState` inside `AuthSessionProvider`, shared by Context; no Zustand."
+  - `importance` - `high`, `medium` or `low`: how much a person approving the pull request should look at it. The
+    comment shows the five most important ones first; a deviation, a new dependency, a security- or data-relevant
+    choice and anything hard to undo are `high`.
   - `data_structures` - types, schemas, shapes of data, constants that encode rules.
   - `state` - where state lives (component, Context, Zustand, URL, storage), what is derived, what persists.
   - `api_contracts` - endpoints called, request and response shapes, schema changes, error handling at the boundary.
@@ -188,8 +194,8 @@ resolution, or has files too large to show always goes to a person. Fill every f
 - `not_checked` - what else you could not or did not examine. The workflow already adds that nothing was run, which
   files were left out of the diff and that visual fidelity was judged only from the design comparison in the
   description; do not repeat those.
-- `qa` - what QA should test by hand: concrete steps and the cases where this change is most likely to break, taken
-  from the issue and the diff.
+- `qa` - at most five steps QA should test by hand, one sentence each, the most likely breakage first: concrete
+  steps and the cases where this change is most likely to break, taken from the issue and the diff.
 
 Write in plain English, in short sentences. Quote Polish only when it is the subject, for example an interface string.
 Use file paths relative to the repository. Do not mention people by name.

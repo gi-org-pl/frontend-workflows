@@ -143,10 +143,10 @@ upsert_comment() {
   fi
 }
 
-note_comment() {
+note_comment() { # headline, text: a comment that is not a review result
   local body
   body=$(mktemp)
-  printf '%s\n## Pre-check\n\n%s\n' "$MARKER" "$1" > "$body"
+  printf '%s\n## Pre-check: %s\n\n%s\n' "$MARKER" "$1" "$2" > "$body"
   upsert_comment "$body"
 }
 
@@ -192,7 +192,10 @@ notchecked)
   guard || true
   remove_labels
   guard || true
-  note_comment "**Result:** not pre-checked for commit \`${HEAD_SHA:0:7}\` - ${SKIP_REASON:-the run was skipped.} A person reviews this pull request; the \`frontend-pre-check / review\` check fails until a pre-check runs, so merging needs a person with the right to bypass it." \
+  # The headline gives the reason in a few words: up to its first ";" or ",".
+  short="${SKIP_REASON:-the run was skipped}"
+  short="${short%%[;,]*}"
+  note_comment "⏭️ not pre-checked · ${short%.}" "Commit \`${HEAD_SHA:0:7}\` was not pre-checked: ${SKIP_REASON:-the run was skipped.} A person reviews this pull request; the \`frontend-pre-check / review\` check fails until a pre-check runs, so merging needs a person with the right to bypass it." \
     || echo "::warning::Could not update the Pre-check comment."
   echo "::error title=Pre-check::Not pre-checked. See the Pre-check comment on the pull request."
   finish skipped
@@ -210,11 +213,11 @@ queue)
         repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { entries(first: 100) {
           nodes { position headCommit { oid } pullRequest { number } } } } } }' > "$queue"; then
     echo "::error title=Pre-check::Could not read the merge queue."
-    finish human
+    finish unqueued
   fi
   if ! members=$(python3 "$HERE/review/merge_group.py" "$queue" "$MERGE_HEAD_SHA" "$MERGE_HEAD_REF"); then
     echo "::error title=Pre-check::Could not establish which pull requests this merge queue entry contains."
-    finish human
+    finish unqueued
   fi
   mapfile -t prs <<< "$members"
   encoded=$(jq -rn --arg name "$name" '$name | @uri')
@@ -227,7 +230,7 @@ queue)
         | if . == null then "missing" elif .status != "completed" then "unfinished" else .conclusion end')
     if [ "$passed" != success ]; then
       echo "::error title=Pre-check::Pull request #$pr has no passing pre-check on its head ${head:0:7}."
-      finish human
+      finish unqueued
     fi
     echo "Pull request #$pr passed the pre-check on its head ${head:0:7}."
   done
@@ -240,14 +243,14 @@ error)
   guard || true
   remove_labels
   case "${REASON:-}" in
-    unsafe_names) text="a file name in this pull request contains a control character or a backtick, so nothing was reviewed." ;;
-    exclusion_policy) text="the caller's exclude_paths names a pattern outside the exclusion policy." ;;
-    invalid) text="the reviewer returned no valid result." ;;
-    gate) text="the gate job did not succeed, so nothing was reviewed." ;;
-    *) text="the reviewer did not complete (a common cause is the usage limit of the subscription; re-run the job later)." ;;
+    unsafe_names) short="unsafe file name"; text="a file name in this pull request contains a control character or a backtick, so nothing was reviewed." ;;
+    exclusion_policy) short="exclusion outside the policy"; text="the caller's exclude_paths names a pattern outside the exclusion policy." ;;
+    invalid) short="no valid result"; text="the reviewer returned no valid result." ;;
+    gate) short="the gate failed"; text="the gate job did not succeed, so nothing was reviewed." ;;
+    *) short="the reviewer did not complete"; text="the reviewer did not complete (a common cause is the usage limit of the subscription; re-run the job later)." ;;
   esac
   guard || true
-  note_comment "**Result:** not finished - $text See the [workflow run]($RUN_URL). Nothing was decided: a person reviews the pull request."
+  note_comment "❌ not finished · $short" "Commit \`${HEAD_SHA:0:7}\`: $text See the [workflow run]($RUN_URL). Nothing was decided: a person reviews the pull request."
   echo "::error title=Pre-check::The pre-check did not finish."
   finish invalid
   ;;
@@ -285,7 +288,7 @@ fi
 
 if ! guard; then
   remove_labels
-  note_comment "**Result:** not current - the base branch moved while commit \`${HEAD_SHA:0:7}\` was being reviewed, so the result is not published. Re-run the job." || true
+  note_comment "❌ not current · the base branch moved" "The base branch moved while commit \`${HEAD_SHA:0:7}\` was being reviewed, so the result is not published. Re-run the job." || true
   echo "::error title=Pre-check::The base branch moved during the review; re-run the job."
   exit 1
 fi
@@ -343,5 +346,14 @@ if [ -n "${USAGE_JSON:-}" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 fi
 
 echo "Pre-check outcome: $outcome."
+if [ "$outcome" = human ]; then
+  # Passes: a person's approval is the gate. The annotation, the label and the
+  # comment say that this pull request needs one; the reasons are fixed texts.
+  reasons=$(jq -r '.reasons | join("; ")' "$out/evaluation.json")
+  echo "::warning title=Pre-check::Needs a person's review: $reasons."
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '**Needs a person'"'"'s review:** %s.\n' "$reasons" >> "$GITHUB_STEP_SUMMARY" || true
+  fi
+fi
 python3 "$CONTRACTS" passes "$outcome" || echo "::error title=Pre-check::The pre-check did not pass ($outcome). See the Pre-check comment on the pull request."
 finish "$outcome"

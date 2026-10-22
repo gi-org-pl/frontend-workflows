@@ -4,18 +4,18 @@
   "required": ["result", "summary", "decisions", "findings", "checked", "not_checked", "qa"],
   "properties": {
     "result": { "type": "string", "enum": ["passed", "changes"] },
-    "summary": { "type": "string", "maxLength": 1000 },
+    "summary": { "type": "string", "maxLength": 200 },
     "decisions": {
       "type": "object",
       "additionalProperties": false,
       "required": ["data_structures", "state", "api_contracts", "ux_behaviours", "new_dependencies", "architecture"],
       "properties": {
-        "data_structures": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } },
-        "state": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } },
-        "api_contracts": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } },
-        "ux_behaviours": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } },
-        "new_dependencies": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } },
-        "architecture": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } }
+        "data_structures": { "type": "array", "maxItems": 20, "items": { "type": "object", "additionalProperties": false, "required": ["lead", "detail", "importance"], "properties": { "lead": { "type": "string", "maxLength": 80 }, "detail": { "type": "string", "maxLength": 400 }, "importance": { "type": "string", "enum": ["high", "medium", "low"] } } } },
+        "state": { "type": "array", "maxItems": 20, "items": { "type": "object", "additionalProperties": false, "required": ["lead", "detail", "importance"], "properties": { "lead": { "type": "string", "maxLength": 80 }, "detail": { "type": "string", "maxLength": 400 }, "importance": { "type": "string", "enum": ["high", "medium", "low"] } } } },
+        "api_contracts": { "type": "array", "maxItems": 20, "items": { "type": "object", "additionalProperties": false, "required": ["lead", "detail", "importance"], "properties": { "lead": { "type": "string", "maxLength": 80 }, "detail": { "type": "string", "maxLength": 400 }, "importance": { "type": "string", "enum": ["high", "medium", "low"] } } } },
+        "ux_behaviours": { "type": "array", "maxItems": 20, "items": { "type": "object", "additionalProperties": false, "required": ["lead", "detail", "importance"], "properties": { "lead": { "type": "string", "maxLength": 80 }, "detail": { "type": "string", "maxLength": 400 }, "importance": { "type": "string", "enum": ["high", "medium", "low"] } } } },
+        "new_dependencies": { "type": "array", "maxItems": 20, "items": { "type": "object", "additionalProperties": false, "required": ["lead", "detail", "importance"], "properties": { "lead": { "type": "string", "maxLength": 80 }, "detail": { "type": "string", "maxLength": 400 }, "importance": { "type": "string", "enum": ["high", "medium", "low"] } } } },
+        "architecture": { "type": "array", "maxItems": 20, "items": { "type": "object", "additionalProperties": false, "required": ["lead", "detail", "importance"], "properties": { "lead": { "type": "string", "maxLength": 80 }, "detail": { "type": "string", "maxLength": 400 }, "importance": { "type": "string", "enum": ["high", "medium", "low"] } } } }
       }
     },
     "findings": {
@@ -30,7 +30,7 @@
           "path": { "type": "string", "maxLength": 400 },
           "line": { "type": "integer", "minimum": 1 },
           "side": { "type": "string", "enum": ["RIGHT", "LEFT"] },
-          "title": { "type": "string", "maxLength": 200 },
+          "title": { "type": "string", "maxLength": 90 },
           "body": { "type": "string", "maxLength": 3000 },
           "inline": { "type": "boolean" }
         }
@@ -38,6 +38,6 @@
     },
     "checked": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } },
     "not_checked": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } },
-    "qa": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 600 } }
+    "qa": { "type": "array", "maxItems": 5, "items": { "type": "string", "maxLength": 300 } }
   }
 }
