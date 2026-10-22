@@ -176,7 +176,7 @@ class CompactCommentTest(unittest.TestCase):
         self.assertIn("/blob/{}/src/services/auth/client/oldClient.ts#L4)".format(typical.BASE), comment)
 
     def test_a_pipe_in_a_title_stays_in_its_cell(self):
-        for title in ["Union `a | b` and a | c", "Handle A | B", "Path `a\\|b` or c\\|d"]:
+        for title in ["Union `a | b` and a | c", "Handle A | B", "Path `a\\|b` or c\\|d", "Even `a\\\\|b` run"]:
             res = copy.deepcopy(typical.RESULT)
             res["findings"][0]["title"] = title
             comment, _ = typical_comment(res)
@@ -191,7 +191,10 @@ class CompactCommentTest(unittest.TestCase):
         sc["human_paths"] = [{"path": ".github/workflows/ci.yml", "reason": "CI workflow"}]
         comment, _ = typical_comment(sc=sc)
         self.assertIn("## Pre-check: ⚠️ needs a person (it changes CI workflows) · 3 minor findings", comment)
-        self.assertIn("The check passes: this pull request needs a person's review and approval", comment)
+        self.assertIn("The check fails: the base branch does not require an approval of the current head", comment)
+        with mock.patch.dict(os.environ, {"APPROVAL_GATE": "current-head"}):
+            comment, _ = typical_comment(sc=sc)
+        self.assertIn("The check passes: a person's review and approval of this commit is the gate", comment)
 
     def test_changes_headline(self):
         res = copy.deepcopy(typical.RESULT)

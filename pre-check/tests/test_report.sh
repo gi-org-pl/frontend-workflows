@@ -126,6 +126,7 @@ grep -q "::warning title=Pre-check::Needs a person's review: the reviewer did no
 labelled "pre-check: human review" || { echo "FAIL human label"; failures=$((failures + 1)); }
 check "needs a person without a current-head approval rule fails" 1 env FAKE_GATE="" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
 grep -q "does not require an approval of the current head" "$T/out" || { echo "FAIL no-gate error"; failures=$((failures + 1)); }
+posted_has "The check fails: the base branch does not require an approval of the current head" || { echo "FAIL no-gate comment"; failures=$((failures + 1)); }
 check "needs a person when the rules cannot be read fails" 1 env FAKE_FAIL="rules/branches" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
 posted_has "## Pre-check: ⚠️ needs a person (the reviewer did not read the whole diff)" || { echo "FAIL human headline"; failures=$((failures + 1)); }
 

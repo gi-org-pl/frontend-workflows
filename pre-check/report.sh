@@ -75,6 +75,8 @@ current_head_approval_required() {
   local base gate
   base=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .base.ref) || return 1
   [[ "$base" =~ ^[A-Za-z0-9._/-]+$ ]] || return 1
+  # One path parameter: a branch such as release/2.x is percent-encoded.
+  base=$(jq -rn --arg base "$base" '$base | @uri')
   gate=$(gh api --paginate "repos/$REPO/rules/branches/$base?per_page=100" --jq '.[] | select(.type == "pull_request")
     | .parameters | select((.required_approving_review_count // 0) >= 1
       and ((.dismiss_stale_reviews_on_push // false) or (.require_last_push_approval // false))) | "gate"') || return 1
@@ -292,6 +294,10 @@ if [ -n "$FINGERPRINT" ] && [ "$analysed" != "$FINGERPRINT" ]; then
   superseded "the description or the draft state changed while this run gathered its context."
 fi
 FINGERPRINT=$analysed
+# Known before anything is rendered, so the comment says whether a "needs a
+# person" result passes here (see current_head_approval_required).
+if current_head_approval_required; then APPROVAL_GATE=current-head; else APPROVAL_GATE=none; fi
+export APPROVAL_GATE
 # A result withheld in the analyse job (package.py) has no text to render.
 if [ "$(jq -r .withheld "$out/evaluation.json")" != true ]; then
   python3 "$HERE/review/render.py" "$RESULT_FILE" "$SCOPE_FILE" "$out/evaluation.json" "$out"
@@ -371,7 +377,7 @@ if [ "$outcome" = human ]; then
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '**Needs a person'"'"'s review:** %s.\n' "$reasons" >> "$GITHUB_STEP_SUMMARY" || true
   fi
-  if ! current_head_approval_required; then
+  if [ "$APPROVAL_GATE" != current-head ]; then
     echo "::error title=Pre-check::Needs a person's review, and the base branch does not require an approval of the current head (a ruleset with at least one approval and \"dismiss stale approvals\" or \"require approval of the most recent push\"), so the check fails. See PROCESS.md, Approval."
     exit 1
   fi

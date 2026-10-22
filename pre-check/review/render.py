@@ -165,7 +165,9 @@ def code(name):
 def cell(text):
     """Text for a table cell: a pipe would end the cell, also inside a code
     span. A pipe plain() already escaped stays escaped once."""
-    return re.sub(r"(?<!\\)\|", r"\\|", text)
+    # A pipe after an even run of backslashes (none, or escaped backslashes)
+    # still ends the cell; it gets one more backslash.
+    return re.sub(r"(?<!\\)((?:\\\\)*)\|", r"\1\\|", text)
 
 
 def fingerprint(f):
@@ -202,11 +204,20 @@ def headline(evaluation):
     return "## Pre-check: {} · {}".format(text, count_line(evaluation))
 
 
+def human_status():
+    """What "needs a person" means for the check here: report.sh has read the
+    rules of the base branch before rendering (APPROVAL_GATE)."""
+    if os.environ.get("APPROVAL_GATE") == "current-head":
+        return ("The check passes: a person's review and approval of this commit is the gate, as the base branch "
+                "requires. This is not an approval.")
+    return ("The check fails: the base branch does not require an approval of the current head, so a person's "
+            "approval cannot be the gate here (see the pre-check process, Approval).")
+
+
 def status_lines(evaluation):
     outcome = evaluation["outcome"]
     if outcome == "human":
-        return ["The check passes: this pull request needs a person's review and approval, which is the gate. "
-                "This is not an approval."]
+        return [human_status()]
     if outcome == "changes" and evaluation["reasons"]:
         return ["A person has to look at it in any case: " + "; ".join(evaluation["reasons"]) + "."]
     if outcome == "advisory" and evaluation.get("notes"):
@@ -357,7 +368,8 @@ def render(result, scope, evaluation, coverage):
 def withheld_notice():
     return (MARKER + "\n## Pre-check: ⚠️ needs a person (the reviewer's output was withheld)\n\nThe reviewer's output "
             "contains text that looks like a credential, so it is not published. A person reviews the pull request; ask "
-            "an organisation owner to look at the workflow run if a credential may be involved." + footer() + "\n")
+            "an organisation owner to look at the workflow run if a credential may be involved.\n\n" + human_status()
+            + footer() + "\n")
 
 
 def main(argv):
