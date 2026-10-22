@@ -87,10 +87,11 @@ def without_code(text):
     is code, not a reference."""
     # Fenced blocks, as Markdown reads them: a block closes at a line with a run
     # of the same character at least as long as the opening one and nothing
-    # else; an unclosed block runs to the end.
+    # else; an unclosed block runs to the end. A fence is indented by at most
+    # three spaces (with four, the line is indented code, not a fence).
     kept, fence = [], None
     for line in text.split("\n"):
-        match = re.match(r"^[ \t]*(`{3,}|~{3,})(.*)$", line)
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
         if fence is None:
             if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
                 fence = match.group(1)
@@ -99,8 +100,9 @@ def without_code(text):
         elif match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
             fence = None
     text = "\n".join(kept)
-    # A code span is delimited by a run of backticks of equal length ("``#1``").
-    return re.sub(r"(`+)(?!`)(.*?[^`])\1(?!`)", " ", text)
+    # A code span is delimited by a run of backticks of equal length ("``#1``")
+    # and may cross line endings within a paragraph, not a blank line.
+    return re.sub(r"(?s)(`+)(?!`)((?:(?!\n[ \t]*\n).)*?[^`])\1(?!`)", " ", text)
 
 
 def issue_refs(body, closing, repo):
@@ -115,7 +117,9 @@ def issue_refs(body, closing, repo):
     found += ["{}#{}".format(m.group(1), m.group(2)) for m in
               re.finditer(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/" + NUMBER, body)]
     for m in re.finditer(r"(?:^|[^A-Za-z0-9_/.-])((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#" + NUMBER, body):
-        if not m.group(1) and COLOUR_CONTEXT.search(body[:m.start(2) - 1]):
+        # Only the few characters before the "#": a declaration is short, and
+        # searching the whole prefix for every reference would be quadratic.
+        if not m.group(1) and COLOUR_CONTEXT.search(body[max(0, m.start(2) - 41):m.start(2) - 1]):
             continue
         found.append("{}#{}".format(m.group(1) or repo, m.group(2)))
     seen, out = set(), []

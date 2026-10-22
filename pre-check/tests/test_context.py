@@ -271,6 +271,17 @@ class DocumentsTest(unittest.TestCase):
         body = "```\n#1\n````\nSee #123.\n~~~~\n#2\n~~~\nstill code #3\n~~~~~\nAnd #124.\n```\n#4"
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
 
+    def test_code_spans_across_lines_and_indented_fences(self):
+        body = "A span `example #1\ncontinued` here.\n\nNot a span ` #123\n\nstill #124 `.\n    ```\nSee #125."
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
+                         ["gi-org-pl/app#123", "gi-org-pl/app#124", "gi-org-pl/app#125"])
+
+    def test_many_references_stay_linear(self):
+        import time
+        start = time.monotonic()
+        documents.issue_refs("#1 " * 20000, [], "gi-org-pl/app")
+        self.assertLess(time.monotonic() - start, 2)
+
     def test_mentions_near_colour_words_and_code_spans_of_any_length(self):
         body = ("See the color bug #123. For the colour picker, see #124. "
                 "Border: `#1`, ``#125``, ```#126``` and fill=\"#127\".")
