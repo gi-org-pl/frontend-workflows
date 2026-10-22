@@ -116,6 +116,20 @@ def without_code(text):
     # ends; an unclosed block otherwise runs to the end.
     kept, fence, item = [], None, 0  # fence: (character, length, quote depth, item indent)
     for line in text.split("\n"):
+        if fence is not None:
+            # Inside a block only its containers count: what looks like a list
+            # marker or a quote within the content is code.
+            depth, rest = 0, line
+            while depth < fence[2] and QUOTE_MARKER.match(rest):
+                depth, rest = depth + 1, rest[QUOTE_MARKER.match(rest).end():]
+            lead = len(rest) - len(rest.lstrip(" "))
+            if depth < fence[2] or (fence[3] and rest.strip() and lead < fence[3]):
+                fence, item = None, (item if depth < fence[2] else 0)  # the container ended
+            else:
+                match = FENCE.match(rest[fence[3]:] if lead >= fence[3] else rest.lstrip(" "))
+                if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
+                    fence = None
+                continue
         depth, new_item, inner = containers(line)
         if new_item is not None:
             item = new_item
@@ -125,16 +139,11 @@ def without_code(text):
                 inner = inner[item:]
             else:
                 item = 0  # a line outside the item ends the list
-        if fence is not None and (depth < fence[2] or item < fence[3] or (new_item is not None and fence[3])):
-            fence = None  # its container ended; this line is read as usual
         match = FENCE.match(inner)
-        if fence is None:
-            if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
-                fence = (match.group(1)[0], len(match.group(1)), depth, item)
-                continue
-            kept.append(line)
-        elif match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
-            fence = None
+        if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
+            fence = (match.group(1)[0], len(match.group(1)), depth, item)
+            continue
+        kept.append(line)
     text = "\n".join(kept)
     # A code span is delimited by a run of backticks of equal length ("``#1``")
     # and may cross line endings within a paragraph, not a blank line.

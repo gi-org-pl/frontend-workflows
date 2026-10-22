@@ -289,6 +289,10 @@ class DocumentsTest(unittest.TestCase):
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
                          ["gi-org-pl/app#126", "gi-org-pl/app#128", "gi-org-pl/app#130"])
 
+    def test_list_looking_lines_inside_a_fence_are_code(self):
+        body = "- item\n  ```\n  - sample\n  > quoted\n  #125\n  ```\nSee #126.\n```\n- x #127\n```\nAnd #128."
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#126", "gi-org-pl/app#128"])
+
     def test_many_references_stay_linear(self):
         import time
         start = time.monotonic()
