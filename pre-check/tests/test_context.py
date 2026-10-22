@@ -319,6 +319,9 @@ class DocumentsTest(unittest.TestCase):
         # A real span inside one quoted paragraph is still code.
         self.assertEqual(refs("> `see #123\n> continued` and #124"), ["gi-org-pl/app#124"])
         self.assertEqual(refs("> > `see #123\n> > continued` and #124"), ["gi-org-pl/app#124"])
+        # A marker indented by four spaces is not a quote: the line is text of the paragraph.
+        self.assertEqual(refs("`See #123\n    >\ncontinued` and #124"), ["gi-org-pl/app#124"])
+        self.assertEqual(refs("`See #123\n   >\ncontinued` and #124"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
         # Fenced blocks are still code.
         self.assertEqual(refs("> ~~~\n> #125\n>\n> ~~~\nSee #126."), ["gi-org-pl/app#126"])
 

@@ -143,8 +143,9 @@ def without_code(text):
 
 
 # A paragraph ends at a blank line, and at a line holding only block-quote
-# markers ("> >"): a code span never crosses either.
-BLANK_LINE = re.compile(r"\n[ \t]*(?:>[ \t]*)*(?=\n|\Z)")
+# markers ("> >", each indented by at most three spaces; with more the line is
+# text of the paragraph): a code span never crosses either.
+BLANK_LINE = re.compile(r"\n(?:[ \t]*|[ ]{0,3}>(?:[ \t]{0,4}>)*[ \t]*)(?=\n|\Z)")
 
 
 def without_code_spans(text):
