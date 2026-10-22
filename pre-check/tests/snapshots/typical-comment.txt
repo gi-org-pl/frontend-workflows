@@ -1,0 +1,93 @@
+<!-- gi-pre-check -->
+## Pre-check: ✅ passed · 3 minor findings
+
+Adds the auth session at the root of the app\: types, an `AuthClient` interface, a session\-storage stand\-in client and `useAuthSession`\. Nothing is drawn yet\.
+
+Not clean: some linked context was not read in full (see Scope below).
+
+**Findings**
+
+| | Finding | Where |
+|---|---|---|
+| 🟡 | The stand\-in client is the app\'s client in every build, production included | [authClient\.ts\:4](https://github.com/gi-org-pl/mypolitics-app/blob/2b0eaac111111111111111111111111111111111/src/services/auth/client/authClient.ts#L4) |
+| 🟡 | Zod schema and helpers sit in the client file, not in `schemas/` and `utils/` | [createMockAuthClient\.ts\:3](https://github.com/gi-org-pl/mypolitics-app/blob/2b0eaac111111111111111111111111111111111/src/services/auth/client/createMockAuthClient.ts#L3) |
+| 🟡 | Abort listener in `wait` is never removed | [createMockAuthClient\.ts\:9](https://github.com/gi-org-pl/mypolitics-app/blob/2b0eaac111111111111111111111111111111111/src/services/auth/client/createMockAuthClient.ts#L9) |
+
+**Decisions to look at**
+
+- **Session state** lives in `useState` inside `AuthSessionProvider`, shared by Context; no Zustand\.
+- **Client behind an interface** \(`AuthClient`\), so the mock and the API adapter are interchangeable\.
+- **A known session survives an outage\:** a failed check signs out only if no session is known yet\.
+- **`signOut()` returns `false`** and keeps the person signed in when the client fails\.
+- **Mock client in `services/auth/client`** is the default client until the API adapter lands\.
+
+**For QA**
+
+1. Reload in the same tab, then open a new tab\: the mock session survives a reload, not a new tab\.
+2. Storybook `Shared/AuthSessionProvider`\: the four states, and `signOut()` in the signed\-in one\.
+3. `yarn build` loads with the mock client as the default\.
+
+<details><summary>Finding details (3)</summary>
+
+**🟡 The stand\-in client is the app\'s client in every build, production included** - `src/services/auth/client/authClient.ts:4`
+
+What\: `authClient` is `createMockAuthClient()`\. Why\: a production build would sign anyone in\. Fix\: choose the client by environment\.
+
+**🟡 Zod schema and helpers sit in the client file, not in `schemas/` and `utils/`** - `src/services/auth/client/createMockAuthClient.ts:3`<!-- inline de7a8d133097ca06 -->
+
+What\: the file holds `stateSchema` and five helpers\. Why\: AGENTS\.md 4\.4\. Fix\: move them\.
+
+**🟡 Abort listener in `wait` is never removed** - `src/services/auth/client/createMockAuthClient.ts:9`
+
+What\: `addEventListener` without `{ once: true }`\. Why\: listeners pile up\. Fix\: remove it\.
+
+</details>
+
+<details><summary>All technical decisions (7)</summary>
+
+**Data structures**
+
+- **Session shape** is a discriminated union of `signedOut`, `pending` and `signedIn`\.
+
+**State**
+
+- **Session state** lives in `useState` inside `AuthSessionProvider`, shared by Context; no Zustand\.
+
+**API contracts**
+
+- **Client behind an interface** \(`AuthClient`\), so the mock and the API adapter are interchangeable\.
+- **`signOut()` returns `false`** and keeps the person signed in when the client fails\.
+
+**UX behaviours**
+
+- **A known session survives an outage\:** a failed check signs out only if no session is known yet\.
+
+**New dependencies**
+
+- None.
+
+**Architecture**
+
+- **Mock client in `services/auth/client`** is the default client until the API adapter lands\.
+- **One provider at the root** wraps the router in `root.tsx`\.
+
+</details>
+
+<details><summary>Scope: what was and was not checked</summary>
+
+- Checked: 2 file(s), 722 changed lines of `2b0eaac` against `be8d98c` (read in full); gi-tech-standards `4e45613`; the repository guide: `AGENTS.md`, `README.md`.
+- Linked issues read: `gi-org-pl/mypolitics-app#206` (members of the organisation only).
+- The diff of all 10 reviewed files against `AGENTS.md` 2 and 4\.4\.
+- Not checked: runtime behaviour - nothing was built, run or tested.
+- Linked context not read in full (does not need a person by itself): the linked document gi\-org\-pl/product/auth\.md \(it could not be read\).
+
+<details><summary>Left out of the diff by policy: 2 file(s), 881 changed lines</summary>
+
+- `src/services/auth/client/createMockAuthClient.test.ts`
+- `src/hooks/useAuthSession.test.ts`
+
+</details>
+
+</details>
+
+<sub>AI pre-check of `2b0eaac` · `sonnet` · [run](https://github.com/gi-org-pl/mypolitics-app/actions/runs/1) · [instructions](https://github.com/gi-org-pl/frontend-workflows/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/docs/pre-check/REVIEWER.md) · advisory, not an approval</sub>

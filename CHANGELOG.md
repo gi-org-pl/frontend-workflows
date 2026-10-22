@@ -1,6 +1,27 @@
 # Changelog
 
-All notable changes to the workflows of this repository. Versions follow [the versioning policy](docs/INDEX.md#versioning).
+All notable changes to the workflows of this repository. Versions follow [the versioning
+policy](docs/INDEX.md#versioning).
+
+## Unreleased
+
+- **"Needs a person" passes the check.** The outcome `human` now ends `frontend-pre-check / review` with success, a
+  warning annotation "Needs a person's review: …", the `pre-check: human review` label and the heading
+  "⚠️ needs a person (…)". "Changes needed", a run that did not finish and a pull request that was not pre-checked
+  still fail; a merge queue entry that cannot pass gets the new failing outcome `unqueued`. No new permission: a
+  separate neutral check run would have needed `checks: write` in every caller. It passes only where a ruleset on the
+  base branch requires at least one approval and either dismisses stale approvals on push or requires approval of the
+  most recent push (read from the branch's rulesets; classic branch protection does not count); elsewhere "needs a
+  person" still fails. **Callers: require an approval of the current head in a ruleset** - it is the gate for pull
+  requests that need a person - and update any text that says the check fails for them.
+- **A compact Pre-check comment.** A heading with the outcome, its icon and the finding count, a one-sentence summary,
+  a findings table with `file:line` links built by the workflow, the five most important decisions, up to five QA
+  steps, and the details folded (finding details, all decisions, scope). The reviewer's result changes with it: a
+  finding title of at most 90 characters, decisions as `lead`, `detail` and `importance`, a one-sentence `summary`
+  (at most 200), at most five `qa` steps.
+- **Issue references.** A number with a leading zero (`#004554`), one followed by a letter (`#12ab34`), the value of
+  a colour declaration (`color: #333`) and anything inside code (any code span or fenced block) is no longer read as
+  an issue reference.
 
 ## 1.1.0 - 2026-10-22
 

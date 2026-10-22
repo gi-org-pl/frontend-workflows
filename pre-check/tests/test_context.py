@@ -259,6 +259,66 @@ class DocumentsTest(unittest.TestCase):
         self.assertEqual(len(ctx.unread), 1)
         self.assertIn("not read: " + refs[-1], ctx.unread[0])
 
+    def test_colours_and_code_are_not_issue_references(self):
+        body = ("Background `#004554` and colour #004554, text color: #333, accent #12ab34.\n"
+                "```css\n.a { color: #445566; } /* #77 */\n```\n"
+                "Part of #212, see `#99` in code. Closes #0207 and #207.")
+        refs = documents.issue_refs(body, [], "gi-org-pl/app")
+        self.assertEqual(refs, ["gi-org-pl/app#212", "gi-org-pl/app#207"])
+        self.assertFalse(documents.valid_ref("gi-org-pl/app#04554", "gi-org-pl"))
+
+    def test_fenced_blocks_close_like_markdown(self):
+        body = "```\n#1\n````\nSee #123.\n~~~~\n#2\n~~~\nstill code #3\n~~~~~\nAnd #124.\n```\n#4"
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+
+    def test_code_spans_across_lines_and_indented_fences(self):
+        body = "A span `example #1\ncontinued` here.\n\nNot a span ` #123\n\nstill #124 `.\n    ```\nSee #125."
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
+                         ["gi-org-pl/app#123", "gi-org-pl/app#124", "gi-org-pl/app#125"])
+
+    def test_fences_inside_block_quotes_and_list_items(self):
+        body = ("> ~~~\n> #125\n> ~~~\nSee #123.\n"
+                "- item\n    ```\n    #126\n    ```\n- next\n\nAnd #124.\n"
+                "1. step\n   ```\n   #127\n   ```")
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+
+    def test_fences_end_with_their_container(self):
+        body = ("- - ~~~\n    #125\n    ~~~\nSee #126.\n"
+                "> ~~~\n> sample #127\nSee #128.\n"
+                "- item\n  ```\n  #129\nOutside the list #130.")
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
+                         ["gi-org-pl/app#126", "gi-org-pl/app#128", "gi-org-pl/app#130"])
+
+    def test_list_looking_lines_inside_a_fence_are_code(self):
+        body = "- item\n  ```\n  - sample\n  > quoted\n  #125\n  ```\nSee #126.\n```\n- x #127\n```\nAnd #128."
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#126", "gi-org-pl/app#128"])
+
+    def test_alternating_containers(self):
+        body = ("- > ~~~\n  > #125\n  > ~~~\nSee #126.\n"
+                "> - ```\n>   #127\n>   ```\n> And #128.\n\n"
+                "1. > - ~~~\n   >   #129\n   > Quote goes on #130")
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
+                         ["gi-org-pl/app#126", "gi-org-pl/app#128", "gi-org-pl/app#130"])
+
+    def test_tabs_after_container_markers(self):
+        body = ">\t~~~\n>\t#125\n>\t~~~\nSee #126.\n-\t```\n\t#127\n\t```\nAnd #128."
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#126", "gi-org-pl/app#128"])
+
+    def test_escaped_backticks_are_text(self):
+        body = "See \\`issue #123\\`. A span `a\\` then #124 and `#1`."
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+
+    def test_many_references_stay_linear(self):
+        import time
+        start = time.monotonic()
+        documents.issue_refs("#1 " * 20000, [], "gi-org-pl/app")
+        self.assertLess(time.monotonic() - start, 2)
+
+    def test_mentions_near_colour_words_and_code_spans_of_any_length(self):
+        body = ("See the color bug #123. For the colour picker, see #124. "
+                "Border: `#1`, ``#125``, ```#126``` and fill=\"#127\".")
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+
     def test_closing_issues_are_read_first(self):
         body = "See #1, #2 and gi-org-pl/other#3. Fixes #7, closes https://github.com/gi-org-pl/app/issues/8"
         refs = documents.issue_refs(body, ["gi-org-pl/app#9"], "gi-org-pl/app")

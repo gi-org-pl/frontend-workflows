@@ -24,11 +24,12 @@ and accepts the pull request or rejects it with suggestions.
    that states decisions, deviations and verification, as the repository's guide asks.
 2. **Pre-check.** When the pull request is opened, updated, reopened, marked ready for review, or its description or
    base branch changes, the reviewer runs:
-   - one comment headed **Pre-check** holds the outcome, **every finding with its full explanation**, labelled with
-     [conventional comments][conventional-comments] (`[blocking]` or `[non-blocking]`),
-     and the technical decisions; findings on lines of the diff are also posted as inline comments, for convenience,
+   - one comment headed **Pre-check** holds the outcome, a findings table with **every finding** (its full
+     explanation folded below, labelled 🔴 blocking or 🟡 minor after [conventional comments][conventional-comments]),
+     the decisions to look at and the steps for QA; findings on lines of the diff are also posted as inline comments,
    - one label is set (see [Outcomes](#outcomes)),
-   - the check `frontend-pre-check / review` passes only for "clean" and "advisory".
+   - the check `frontend-pre-check / review` passes for "clean", "advisory" and "needs a person", and fails for
+     "changes needed", a run that did not finish and a pull request that was not pre-checked.
 3. **Fixes.** The author fixes the blocking findings and pushes. The pre-check runs again and updates the same
    Pre-check comment. A finding the author thinks is wrong is answered with the reason; the person reviewing decides.
 4. **QA.** The functionality is tested by hand, guided by the "For QA" part of the summary.
@@ -47,9 +48,25 @@ There is one set of outcome states, defined once in
 | `advisory` | only non-blocking findings, or none while some linked context was not read in full (below); the change itself was fully covered | `pre-check: advisory` | success (exit 0) |
 | `queued` | a `merge_group` entry whose pull requests passed this check on their current heads | none | success (exit 0) |
 | `changes` | at least one blocking finding, anywhere in the reviewer's list | `pre-check: changes` | failure (exit 1) |
-| `human` | a rule says a person must judge it (list below), or the reviewer's output looked like it contained a credential and was withheld | `pre-check: human review` | failure (exit 1) |
+| `human` | a rule says a person must judge it (list below), or the reviewer's output looked like it contained a credential and was withheld | `pre-check: human review` | success (exit 0) with a warning annotation "Needs a person's review: …" where a ruleset requires an approval of the current head; failure (exit 1) elsewhere |
 | `invalid` | no valid result: the reviewer failed or returned a malformed result, the scope broke its schema, an exclusion is outside the policy, or a file name contains a control character or a backtick | none | failure (exit 1) |
 | `skipped` | not pre-checked: a fork, a draft, a bot, an actor without write access, no secret, or the hourly run limit | none | failure (exit 1) |
+| `unqueued` | a `merge_group` entry with a pull request that has no passing check on its head, or whose members cannot be established | none | failure (exit 1) |
+
+**"Needs a person" passes the check; the person's approval is the gate.** A pull request the pre-check cannot judge
+is not wrong, so the check does not turn red: it succeeds with a warning annotation, the `pre-check: human review`
+label and the heading "⚠️ needs a person (…)". What keeps it from merging unreviewed is the approval by a person that
+the repository requires (see [Approval](#approval)), and it has to be an approval **of the current head**: an approval
+of an earlier commit must not carry a later push that changes CI or dependencies. So the run passes "needs a person"
+only when a ruleset on the base branch requires at least one approval and either dismisses stale approvals on push or
+requires approval of the most recent push. It reads that from the rulesets of the branch (readable with the workflow
+token; classic branch protection is not, and does not count); without such a rule, or when the rules cannot be read,
+"needs a person" fails as before. A separate neutral check run (`frontend-pre-check / outcome`) would show the state
+among the checks, but publishing it needs `checks: write` in every caller: a new required permission, so a major
+release, for a signal the label, the annotation and the comment already give. "Changes needed" and a run that did not
+finish still fail. A pull request that was not pre-checked (fork, draft, bot, no secret, run limit) still fails too,
+as the security review required that a skip never passes; whether it should pass like "needs a person" is an open
+question for the owner.
 
 A pull request **needs a person** when any of these holds - each is decided by a rule, not by the model:
 
@@ -147,26 +164,133 @@ by QA.
 
 ## The Pre-check comment
 
-One comment per pull request, found again by a hidden marker and updated on every run. Its sections are fixed:
+One comment per pull request, found again by a hidden marker and updated on every run. It is short to read and keeps
+the rest folded; a typical pull request shows about 3 000 characters before anything is opened:
 
-- **Result** - the outcome and the reviewer's one-line summary.
-- **Findings** - every finding (up to 30 shown, blocking ones first; the outcome counts all of them) with severity,
-  location and its full explanation; whether it was also attached inline.
-- **Technical decisions in this PR** - data structures, state, API contracts, UX behaviours, new dependencies,
-  architecture. "None." where the pull request makes no decision of that kind; "Deviation:" where a decision departs
-  from the issue or the standard.
-- **What was checked** - the reviewed diff, its head and base commits (the head as it is, not the merged result),
-  whether the reviewer read the whole diff, the linked issues, the standards version and the documents used.
-- **What was not checked** - always runtime behaviour; every change without a reviewable diff, every path that needs
-  a person, renames, the files left out by policy with their size, images, the Figma note, cut sources and notes.
-- **For QA** - what to test by hand.
+- **Heading** - `## Pre-check:` with the outcome and its icon (✅ clean or passed, ⚠️ needs a person, ❌ changes needed
+  or not finished, ⏭️ not pre-checked), the reason in a few words when a person is needed, and the count of blocking
+  and minor findings. Then the reviewer's one-sentence summary.
+- **Findings** - a table: 🔴 blocking or 🟡 minor, a one-line title, and where - `file:line` linked to the reviewed
+  commit by the workflow (never by the model), and only for a changed file. Up to 30 rows, blocking ones first; the
+  heading counts all of them.
+- **Decisions to look at** - the five most important technical decisions, one line each.
+- **For QA** - up to five numbered steps to test by hand.
+- Folded: **Finding details** (what, why and the fix of each finding, and whether it was attached inline), **All
+  technical decisions** (data structures, state, API contracts, UX behaviours, new dependencies, architecture; "None."
+  where the pull request makes no decision of that kind), **Scope** (what was checked: files, changed lines, the head
+  and base commits, whether the diff was read in full, the standards, the guide, the linked issues and documents; what
+  was not: runtime behaviour, changes without a diff, paths that need a person, renames, images, Figma, cut and unread
+  context, and the files left out by policy, folded again).
+- A one-line footer: the commit, the model, the run, the reviewer instructions, "advisory, not an approval".
+
+The display caps (rows, decisions, QA steps, body length) are in `review/render.py` only; the outcome is computed
+before them and cannot change with them. A sample, from the snapshot the tests compare against
+([`tests/snapshots/typical-comment.txt`](../../pre-check/tests/snapshots/typical-comment.txt)):
+
+````markdown
+## Pre-check: ✅ passed · 3 minor findings
+
+Adds the auth session at the root of the app\: types, an `AuthClient` interface, a session\-storage stand\-in client and `useAuthSession`\. Nothing is drawn yet\.
+
+Not clean: some linked context was not read in full (see Scope below).
+
+**Findings**
+
+| | Finding | Where |
+|---|---|---|
+| 🟡 | The stand\-in client is the app\'s client in every build, production included | [authClient\.ts\:4](https://github.com/gi-org-pl/mypolitics-app/blob/2b0eaac111111111111111111111111111111111/src/services/auth/client/authClient.ts#L4) |
+| 🟡 | Zod schema and helpers sit in the client file, not in `schemas/` and `utils/` | [createMockAuthClient\.ts\:3](https://github.com/gi-org-pl/mypolitics-app/blob/2b0eaac111111111111111111111111111111111/src/services/auth/client/createMockAuthClient.ts#L3) |
+| 🟡 | Abort listener in `wait` is never removed | [createMockAuthClient\.ts\:9](https://github.com/gi-org-pl/mypolitics-app/blob/2b0eaac111111111111111111111111111111111/src/services/auth/client/createMockAuthClient.ts#L9) |
+
+**Decisions to look at**
+
+- **Session state** lives in `useState` inside `AuthSessionProvider`, shared by Context; no Zustand\.
+- **Client behind an interface** \(`AuthClient`\), so the mock and the API adapter are interchangeable\.
+- **A known session survives an outage\:** a failed check signs out only if no session is known yet\.
+- **`signOut()` returns `false`** and keeps the person signed in when the client fails\.
+- **Mock client in `services/auth/client`** is the default client until the API adapter lands\.
+
+**For QA**
+
+1. Reload in the same tab, then open a new tab\: the mock session survives a reload, not a new tab\.
+2. Storybook `Shared/AuthSessionProvider`\: the four states, and `signOut()` in the signed\-in one\.
+3. `yarn build` loads with the mock client as the default\.
+
+<details><summary>Finding details (3)</summary>
+
+**🟡 The stand\-in client is the app\'s client in every build, production included** - `src/services/auth/client/authClient.ts:4`
+
+What\: `authClient` is `createMockAuthClient()`\. Why\: a production build would sign anyone in\. Fix\: choose the client by environment\.
+
+**🟡 Zod schema and helpers sit in the client file, not in `schemas/` and `utils/`** - `src/services/auth/client/createMockAuthClient.ts:3` (also as an inline comment)
+
+What\: the file holds `stateSchema` and five helpers\. Why\: AGENTS\.md 4\.4\. Fix\: move them\.
+
+**🟡 Abort listener in `wait` is never removed** - `src/services/auth/client/createMockAuthClient.ts:9`
+
+What\: `addEventListener` without `{ once: true }`\. Why\: listeners pile up\. Fix\: remove it\.
+
+</details>
+
+<details><summary>All technical decisions (7)</summary>
+
+**Data structures**
+
+- **Session shape** is a discriminated union of `signedOut`, `pending` and `signedIn`\.
+
+**State**
+
+- **Session state** lives in `useState` inside `AuthSessionProvider`, shared by Context; no Zustand\.
+
+**API contracts**
+
+- **Client behind an interface** \(`AuthClient`\), so the mock and the API adapter are interchangeable\.
+- **`signOut()` returns `false`** and keeps the person signed in when the client fails\.
+
+**UX behaviours**
+
+- **A known session survives an outage\:** a failed check signs out only if no session is known yet\.
+
+**New dependencies**
+
+- None.
+
+**Architecture**
+
+- **Mock client in `services/auth/client`** is the default client until the API adapter lands\.
+- **One provider at the root** wraps the router in `root.tsx`\.
+
+</details>
+
+<details><summary>Scope: what was and was not checked</summary>
+
+- Checked: 2 file(s), 722 changed lines of `2b0eaac` against `be8d98c` (read in full); gi-tech-standards `4e45613`; the repository guide: `AGENTS.md`, `README.md`.
+- Linked issues read: `gi-org-pl/mypolitics-app#206` (members of the organisation only).
+- The diff of all 10 reviewed files against `AGENTS.md` 2 and 4\.4\.
+- Not checked: runtime behaviour - nothing was built, run or tested.
+- Linked context not read in full (does not need a person by itself): the linked document gi\-org\-pl/product/auth\.md \(it could not be read\).
+
+<details><summary>Left out of the diff by policy: 2 file(s), 881 changed lines</summary>
+
+- `src/services/auth/client/createMockAuthClient.test.ts`
+- `src/hooks/useAuthSession.test.ts`
+
+</details>
+
+</details>
+
+<sub>AI pre-check of `2b0eaac` · `sonnet` · [run](https://github.com/gi-org-pl/mypolitics-app/actions/runs/1) · [instructions](https://github.com/gi-org-pl/frontend-workflows/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/docs/pre-check/REVIEWER.md) · advisory, not an approval</sub>
+````
 
 **Everything the reviewer wrote is rendered as escaped plain text.** HTML, entities and Markdown structure are escaped,
 so no link of any kind (inline, reference, shortcut, angle-bracket, protocol-relative or bare `www.`), no image, no
 mention, no heading, list or table can come from the model; schemes, `www.` and `@` are broken so GitHub does not
-autolink them. Fenced and inline code stay literal, and `suggestion` blocks become plain code. The only links in the
-comment are built by the workflow itself (the run, the reviewer instructions, Figma links from the scope), each checked
-by `allowed_link()` after percent-decoding, so `..` segments cannot leave the allowlisted place.
+autolink them. Fenced and inline code stay literal, and `suggestion` blocks become plain code. Inline code spans are
+safe to keep: GitHub renders their content verbatim - no link, mention, HTML or emphasis is interpreted inside one -
+backticks in the model's text are replaced so a span cannot be closed early, line breaks are removed, and in a table
+cell a pipe is escaped so it cannot end the cell. The only links in the comment are built by the workflow itself (the
+run, the reviewer instructions, `file:line` of a changed file at the reviewed commit, Figma links from the scope),
+each checked by `allowed_link()` after percent-decoding, so `..` segments cannot leave the allowlisted place.
 
 **Credentials.** Known credential shapes are redacted, including any run of 80 or more base64- or hex-like characters,
 because a token may come back encoded - a conscious, fail-safe choice that can hide a legitimate long hash; narrow it
@@ -285,10 +409,11 @@ The pre-check never approves. Its label and its check inform; a person accepts:
 The options, from the simplest:
 
 1. **Required status check** `frontend-pre-check / review` plus the existing human approval (recommended): nothing
-   merges with
-   unresolved blocking findings, with changes the pre-check cannot judge, or without a pre-check at all, and a person
-   still accepts the pull request. Pull requests that need a person, and bot and fork pull requests, then need someone
-   with the right to bypass the ruleset.
+   merges with unresolved blocking findings or without a pre-check at all, and a person still accepts the pull request.
+   A pull request that needs a person passes the check, so the **required approval of the current head is its gate**:
+   a ruleset on the base branch that requires at least one approval and either dismisses stale approvals on push or
+   requires approval of the most recent push. Without that rule the check fails for such a pull request, as it did
+   before. Bot and fork pull requests, which are not pre-checked, need someone with the right to bypass the ruleset.
 2. **Label only**: the check is not required; the label and the summary inform the person, who decides.
 
 Until the organisation has made the settings below and the first weeks of runs have been looked at, use option 2: the
@@ -393,7 +518,9 @@ These are not code. Without them a writer can bypass the pre-check, or read the 
    `actions/checkout` and reusable workflows from `gi-org-pl/frontend-workflows`.
 8. **Require the right check, read the right signal.** If the check is required: Repository → Settings → Rules →
    Rulesets → "Require status checks to pass" → `frontend-pre-check / review` from GitHub Actions, and decide who may
-   bypass it (bot, fork and "needs a person" pull requests depend on that). Automation that depends on the pre-check
+   bypass it (bot and fork pull requests depend on that), and require an approval of the current head in a ruleset
+   (at least one approval, and "Dismiss stale pull request approvals when new commits are pushed" or "Require approval
+   of the most recent reviewable push") - it is the gate for "needs a person". Automation that depends on the pre-check
    reads that check run for the head commit, never the label, and nobody treats a green pre-check as a sign-off.
 9. **Re-audit on every bump of the action.** The secret stays safe because of the reviewer's sandbox in `analyse`: the
    tool set, the `Read` scope and denylist (`/proc`, `~/.ssh`, `~/.claude*`, `/tmp`, runner temp and tools, `.git/`), no

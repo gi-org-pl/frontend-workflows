@@ -44,9 +44,12 @@ def outcome(res, sc=None, coverage="full"):
 
 class OutcomeStatesTest(unittest.TestCase):
     def test_single_set_of_states(self):
-        self.assertEqual(set(contracts.OUTCOMES), {"clean", "advisory", "queued", "changes", "human", "invalid", "skipped"})
+        self.assertEqual(set(contracts.OUTCOMES),
+                         {"clean", "advisory", "queued", "changes", "human", "invalid", "skipped", "unqueued"})
         passing = {name for name, (passes, _) in contracts.OUTCOMES.items() if passes}
-        self.assertEqual(passing, {"clean", "advisory", "queued"})
+        # "human" passes: the required approval by a person is the gate. A
+        # skip, a failure and blocking findings never pass.
+        self.assertEqual(passing, {"clean", "advisory", "queued", "human"})
 
     def test_exit_codes(self):
         for name, (passes, _) in contracts.OUTCOMES.items():

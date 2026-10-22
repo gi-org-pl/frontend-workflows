@@ -8,6 +8,7 @@ wrote are used; documents come only from the default branch of an allowed
 repository, pinned to a commit; every cut at a size limit is recorded.
 """
 
+import bisect
 import os
 import re
 
@@ -72,20 +73,127 @@ def inside(target, base):
 
 
 CLOSING_WORD = r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)"
-REF_IN_BODY = r"(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/|((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#)([0-9]+)"
+# An issue number has no leading zero and is not followed by a letter, so a
+# colour such as #004554 or #12ab34 is not read as an issue.
+NUMBER = r"([1-9][0-9]*)(?![0-9A-Za-z_])"
+REF_IN_BODY = r"(?:https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/|((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#)" + NUMBER
+# A short reference that is the value of a colour declaration ("color: #333",
+# "fill='#fff'") is a colour, not an issue; a mention near the word ("the
+# color bug #123") stays a reference.
+COLOUR_CONTEXT = re.compile(r"(?i)\b(?:colou?r|background|fill|stroke|border|outline|accent)(?:-[a-z]+)*\s*[:=]\s*[\"']?$")
+
+
+QUOTE_MARKER = re.compile(r"^ {0,3}>[ ]?")
+LIST_MARKER = re.compile(r"^ {0,3}(?:[-*+]|[0-9]{1,9}[.)])(?: +|$)")
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def without_code(text):
+    """TEXT without fenced code blocks and inline code spans, where a "#123"
+    is code, not a reference."""
+    # Fenced blocks, as Markdown reads them inside their containers: a stack of
+    # block quotes and list items in any order ("- > ~~~"). Each line first
+    # continues the open containers (a quote by its ">", an item by its
+    # indentation; a blank line keeps items open), then opens new ones. A fence
+    # is indented by at most three spaces within its containers (with four it
+    # is indented code). A block closes at a run of the same character at
+    # least as long as the opener with nothing else on the line, or when a
+    # container it opened in ends; an unclosed block otherwise runs to the end.
+    # Inside a block only its containers are read: the rest is code.
+    kept, stack, fence = [], [], None  # stack: ">" or an item's content indent; fence: (character, length, depth)
+    for line in text.split("\n"):
+        # A tab counts as indentation to the next multiple of four columns.
+        rest, matched = line.expandtabs(4), 0
+        for container in stack:
+            if container == ">":
+                match = QUOTE_MARKER.match(rest)
+                if not match:
+                    break
+                rest = rest[match.end():]
+            elif rest.strip():
+                if len(rest) - len(rest.lstrip(" ")) < container:
+                    break
+                rest = rest[container:]
+            matched += 1
+        if fence is not None:
+            if matched >= fence[2]:
+                match = FENCE.match(rest)
+                if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
+                    fence = None
+                continue
+            fence = None  # a container of the block ended; this line is read as usual
+        del stack[matched:]
+        while rest.strip():
+            match = QUOTE_MARKER.match(rest)
+            if match:
+                stack.append(">")
+            else:
+                match = LIST_MARKER.match(rest)
+                if not match:
+                    break
+                stack.append(match.end())
+            rest = rest[match.end():]
+        match = FENCE.match(rest)
+        if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
+            fence = (match.group(1)[0], len(match.group(1)), len(stack))
+            continue
+        kept.append(line)
+    text = "\n".join(kept)
+    return without_code_spans(text)
+
+
+BLANK_LINE = re.compile(r"\n[ \t]*\n")
+
+
+def without_code_spans(text):
+    """TEXT without inline code spans, read left to right as Markdown does: a
+    span opens at a run of backticks that is not backslash-escaped and closes
+    at the next run of the same length within the paragraph (inside a span a
+    backslash escapes nothing); an escaped backtick is text."""
+    out, i, closers = [], 0, {}
+    blanks = [m.start() for m in BLANK_LINE.finditer(text)]  # paragraph ends, found once
+    while i < len(text):
+        char = text[i]
+        if char == "\\" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if char != "`":
+            out.append(char)
+            i += 1
+            continue
+        end = i
+        while end < len(text) and text[end] == "`":
+            end += 1
+        run = end - i
+        closer = closers.setdefault(run, re.compile(r"(?<!`)`{%d}(?!`)" % run))
+        following = bisect.bisect_left(blanks, end)
+        match = closer.search(text, end, blanks[following] if following < len(blanks) else len(text))
+        if match:
+            out.append(" ")
+            i = match.end()
+        else:
+            out.append(text[i:end])  # no closing run: the backticks are text
+            i = end
+    return "".join(out)
 
 
 def issue_refs(body, closing, repo):
     """Candidate references, unique, in the order they are read: the issues
     the pull request closes (GitHub's closing references, then the ones the
     description names after "closes", "fixes" or "resolves"), then the other
-    mentions in order."""
+    mentions in order. Code and colours are not references."""
+    body = without_code(body)
     found = list(closing)
     for m in re.finditer(r"(?i)\b" + CLOSING_WORD + r":?\s+" + REF_IN_BODY, body):
         found.append("{}#{}".format(m.group(1) or m.group(2) or repo, m.group(3)))
     found += ["{}#{}".format(m.group(1), m.group(2)) for m in
-              re.finditer(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([0-9]+)", body)]
-    for m in re.finditer(r"(?:^|[^A-Za-z0-9_/.-])((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#([0-9]+)", body):
+              re.finditer(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/" + NUMBER, body)]
+    for m in re.finditer(r"(?:^|[^A-Za-z0-9_/.-])((?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?)#" + NUMBER, body):
+        # Only the few characters before the "#": a declaration is short, and
+        # searching the whole prefix for every reference would be quadratic.
+        if not m.group(1) and COLOUR_CONTEXT.search(body[max(0, m.start(2) - 41):m.start(2) - 1]):
+            continue
         found.append("{}#{}".format(m.group(1) or repo, m.group(2)))
     seen, out = set(), []
     for ref in found:
@@ -96,7 +204,7 @@ def issue_refs(body, closing, repo):
 
 
 def valid_ref(ref, owner):
-    match = re.match(r"^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([0-9]{1,7})$", ref)
+    match = re.match(r"^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([1-9][0-9]{0,6})$", ref)
     if not match:
         return False
     ref_owner, name, _ = match.groups()

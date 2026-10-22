@@ -30,7 +30,13 @@ OUTCOMES = {
     "advisory": (True, "pre-check: advisory"),    # only non-blocking findings, full coverage
     "queued": (True, ""),                         # merge queue entry whose PRs passed on their heads
     "changes": (False, "pre-check: changes"),     # at least one blocking finding
-    "human": (False, "pre-check: human review"),  # a rule says a person must judge it (incl. withheld output)
+    # A rule says a person must judge it (incl. withheld output). It passes:
+    # the pull request's required approval by a person is the gate, and the
+    # label, the comment and a warning annotation say that it needs one.
+    # report.sh lets it pass only where a ruleset requires an approval of the
+    # current head; elsewhere the run fails as before.
+    "human": (True, "pre-check: human review"),
+    "unqueued": (False, ""),                      # merge queue entry with a pull request that has not passed on its head
     "invalid": (False, ""),                       # no valid result: the run failed, the output was malformed, or the input was refused
     "skipped": (False, ""),                       # not pre-checked: fork, draft, bot, no write access, no secret, run limit
 }
