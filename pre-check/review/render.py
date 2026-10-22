@@ -221,9 +221,13 @@ def where(f, scope):
     repo = os.environ.get("REPO", "")
     changed = set(scope["hunks"]) | set(scope["reviewed"]) | {u["path"] for u in scope["unreviewable"]}
     sha = scope["base"] if side == "LEFT" else scope["head"]
-    if (path in changed and SAFE_PATH.match(path) and re.match(r"^gi-org-pl/[A-Za-z0-9._-]+$", repo)
+    # A removed line lives in the base commit, under the old name of a renamed file.
+    target = path
+    if side == "LEFT":
+        target = next((r["from"] for r in scope["renamed"] if r["to"] == path), path)
+    if (path in changed and SAFE_PATH.match(target) and re.match(r"^gi-org-pl/[A-Za-z0-9._-]+$", repo)
             and re.match(r"^[0-9a-f]{40}$", sha)):
-        url = "https://github.com/{}/blob/{}/{}{}".format(repo, sha, quote(path), "#L{}".format(line) if line else "")
+        url = "https://github.com/{}/blob/{}/{}{}".format(repo, sha, quote(target), "#L{}".format(line) if line else "")
         if allowed_link(url):
             return "[{}]({})".format(plain(label), url)
     return code(label)

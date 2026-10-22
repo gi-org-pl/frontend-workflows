@@ -88,10 +88,22 @@ def without_code(text):
     # Fenced blocks, as Markdown reads them: a block closes at a line with a run
     # of the same character at least as long as the opening one and nothing
     # else; an unclosed block runs to the end. A fence is indented by at most
-    # three spaces (with four, the line is indented code, not a fence).
-    kept, fence = [], None
+    # three spaces (with four, the line is indented code, not a fence), counted
+    # inside its containers: block quote markers are taken off, and so is the
+    # indentation of the list item a line belongs to.
+    kept, fence, item = [], None, 0
     for line in text.split("\n"):
-        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        inner = re.sub(r"^(?: {0,3}>[ ]?)+", "", line)
+        marker = re.match(r"^( {0,3}(?:[-*+]|[0-9]{1,9}[.)]) +)", inner)
+        if marker:
+            item = len(marker.group(1))
+            inner = inner[item:]
+        elif inner.strip() and item:
+            if len(inner) - len(inner.lstrip(" ")) >= item:
+                inner = inner[item:]
+            elif fence is None:
+                item = 0  # a line outside the item ends the list
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", inner)
         if fence is None:
             if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
                 fence = match.group(1)

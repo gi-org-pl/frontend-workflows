@@ -167,6 +167,14 @@ class CompactCommentTest(unittest.TestCase):
         self.assertIn("| `x.ts:4` |", comment)
         self.assertNotIn("](https://evil", comment)
 
+    def test_a_removed_line_of_a_renamed_file_links_to_its_old_name(self):
+        res, sc = copy.deepcopy(typical.RESULT), copy.deepcopy(typical.SCOPE)
+        sc["renamed"] = [{"from": "src/services/auth/client/oldClient.ts", "to": "src/services/auth/client/authClient.ts",
+                          "status": "renamed"}]
+        res["findings"][0]["side"] = "LEFT"
+        comment, _ = typical_comment(res, sc)
+        self.assertIn("/blob/{}/src/services/auth/client/oldClient.ts#L4)".format(typical.BASE), comment)
+
     def test_a_pipe_in_a_title_stays_in_its_cell(self):
         res = copy.deepcopy(typical.RESULT)
         res["findings"][0]["title"] = "Union `a | b` and a | c"

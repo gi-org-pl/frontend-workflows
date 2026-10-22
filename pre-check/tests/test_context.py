@@ -276,6 +276,12 @@ class DocumentsTest(unittest.TestCase):
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"),
                          ["gi-org-pl/app#123", "gi-org-pl/app#124", "gi-org-pl/app#125"])
 
+    def test_fences_inside_block_quotes_and_list_items(self):
+        body = ("> ~~~\n> #125\n> ~~~\nSee #123.\n"
+                "- item\n    ```\n    #126\n    ```\n- next\n\nAnd #124.\n"
+                "1. step\n   ```\n   #127\n   ```")
+        self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+
     def test_many_references_stay_linear(self):
         import time
         start = time.monotonic()
