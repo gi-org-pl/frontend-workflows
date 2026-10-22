@@ -325,6 +325,9 @@ class DocumentsTest(unittest.TestCase):
         # Inside a list item whose content is indented by four columns.
         self.assertEqual(refs("10. > `See #123\n    >\n    > continued` and #124"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
         self.assertEqual(refs("10. > `see #123\n    > continued` and #124"), ["gi-org-pl/app#124"])
+        # An empty list marker cannot interrupt a paragraph: the span stays intact.
+        self.assertEqual(refs("`See #123\n2.\ncontinued` and #124"), ["gi-org-pl/app#124"])
+        self.assertEqual(refs("`See #123\n-\ncontinued` and #124"), ["gi-org-pl/app#124"])
         # Fenced blocks are still code.
         self.assertEqual(refs("> ~~~\n> #125\n>\n> ~~~\nSee #126."), ["gi-org-pl/app#126"])
 
