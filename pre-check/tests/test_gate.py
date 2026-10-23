@@ -88,6 +88,13 @@ class InputTest(unittest.TestCase):
                 gate.check_inputs(env(**extra))
 
 
+class RunPathTest(unittest.TestCase):
+    def test_a_path_with_a_ref_counts_as_the_caller(self):
+        run = {"path": ".github/workflows/frontend-pre-check.yml@refs/heads/feature/x", "conclusion": "success",
+               "pull_requests": [{"number": 7}]}
+        self.assertEqual(gate.runs_last_hour(gh(run_pages=[{"workflow_runs": [run] * 3}]), env(), NOW), 3)
+
+
 class ReviewEventTest(unittest.TestCase):
     def test_a_review_event_only_derives_the_check_again(self):
         # No secret, no API call, whoever reviewed and whatever the pull request.

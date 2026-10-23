@@ -76,7 +76,8 @@ def runs_last_hour(gh, env, now):
     count = 0
     for page in pages:
         for run in page.get("workflow_runs", []):
-            if run.get("path") == path and run.get("conclusion") != "skipped" and any(
+            # The path may come with a ref ("...yml@main").
+            if (run.get("path") or "").split("@")[0] == path and run.get("conclusion") != "skipped" and any(
                     p.get("number") == number for p in run.get("pull_requests") or []):
                 count += 1
     return count

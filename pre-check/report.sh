@@ -334,6 +334,7 @@ recheck)
   # re-run) decides: wait for it before trusting any stored result, so that
   # this run never ends on an outcome that run is about to replace. If that
   # cannot be told, or it is still going at the end of the wait, do not pass.
+  # The runs API may give the path with a ref ("…yml@main"); both sides drop it.
   path="${CALLER_REF#"$REPO"/}"
   path="${path%%@*}"
   if ! [[ "$path" =~ ^[A-Za-z0-9._/-]+$ ]]; then
@@ -343,7 +344,7 @@ recheck)
   running=1
   for _ in $(seq 1 "${RECHECK_WAITS:-36}"); do
     if ! running=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" \
-      --jq "[.workflow_runs[] | select(.path == \"$path\" and .status != \"completed\")] | length"); then
+      --jq "[.workflow_runs[] | select((.path // \"\" | split(\"@\")[0]) == \"$path\" and .status != \"completed\")] | length"); then
       echo "::error title=Pre-check::Could not read the workflow runs of commit ${HEAD_SHA:0:7}; this run does not pass."
       exit 1
     fi
