@@ -25,9 +25,9 @@
 #   recheck     pull_request_review: no new review and no writes; the check
 #               of the current head is derived again from the outcome the
 #               Pre-check comment stores for that head, with the approvals as
-#               they are now (see human_gate). No stored outcome for the head:
-#               fails, after waiting for a pre-check run of the head that is
-#               still going (CALLER_REF names the caller workflow).
+#               they are now (see human_gate). A pre-check run of the head
+#               that is still going is waited for first (CALLER_REF names the
+#               caller workflow); still going, or no stored outcome: fails.
 #
 # Environment: REPO, PR_NUMBER, HEAD_SHA, BASE_SHA, GH_TOKEN, RUN_URL, MODEL,
 # WORKFLOW_SHA, RESULT_FILE, SCOPE_FILE, COVERAGE, USAGE_JSON, TOOLS_USED,
@@ -330,21 +330,31 @@ recheck)
     echo "::error title=Pre-check::This review event is for commit ${HEAD_SHA:0:7}, but the pull request is at ${current:0:7}; this run does not pass."
     exit 1
   fi
-  read -r stored_head stored_outcome stored_fingerprint < <(stored_state || true) || true
-  if [ "${stored_head:-}" != "$HEAD_SHA" ]; then
-    # The pre-check of this head may still be running: wait for it, so that
-    # this run does not end red after it (the newest check run counts).
-    path="${CALLER_REF#"$REPO"/}"
-    path="${path%%@*}"
-    for _ in $(seq 1 "${RECHECK_WAITS:-36}"); do
-      [[ "$path" =~ ^[A-Za-z0-9._/-]+$ ]] || break
-      running=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" \
-        --jq "[.workflow_runs[] | select(.path == \"$path\" and .status != \"completed\")] | length") || break
-      [ "$running" != 0 ] || break
-      sleep "${RECHECK_SLEEP:-20}"
-    done
-    read -r stored_head stored_outcome stored_fingerprint < <(stored_state || true) || true
+  # A pre-check of this head that is still going (a push, an edit or a
+  # re-run) decides: wait for it before trusting any stored result, so that
+  # this run never ends on an outcome that run is about to replace. If that
+  # cannot be told, or it is still going at the end of the wait, do not pass.
+  path="${CALLER_REF#"$REPO"/}"
+  path="${path%%@*}"
+  if ! [[ "$path" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    echo "::error title=Pre-check::The caller workflow is unknown, so a running pre-check cannot be ruled out."
+    exit 1
   fi
+  running=1
+  for _ in $(seq 1 "${RECHECK_WAITS:-36}"); do
+    if ! running=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" \
+      --jq "[.workflow_runs[] | select(.path == \"$path\" and .status != \"completed\")] | length"); then
+      echo "::error title=Pre-check::Could not read the workflow runs of commit ${HEAD_SHA:0:7}; this run does not pass."
+      exit 1
+    fi
+    [ "$running" != 0 ] || break
+    sleep "${RECHECK_SLEEP:-20}"
+  done
+  if [ "$running" != 0 ]; then
+    echo "::error title=Pre-check::A pre-check of commit ${HEAD_SHA:0:7} is still going; it sets the check."
+    exit 1
+  fi
+  read -r stored_head stored_outcome stored_fingerprint < <(stored_state || true) || true
   if [ "${stored_head:-}" != "$HEAD_SHA" ]; then
     echo "::error title=Pre-check::No pre-check result is stored for commit ${HEAD_SHA:0:7}, so a review cannot change the check. It is set by the pre-check of the next push or description edit, or by a re-run of the last one."
     exit 1

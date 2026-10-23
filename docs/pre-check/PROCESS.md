@@ -62,17 +62,17 @@ either holds: a ruleset on the base branch requires at least one approval and ei
 or requires approval of the most recent push (read from the rulesets of the branch, which the workflow token can read;
 classic branch protection cannot be read and does not count) - or the current head **has** such an approval: an
 `APPROVED` review whose commit is the head, by a person who can write to the repository (write, maintain or admin by the
-collaborator permission API; where that API cannot be read, the author association owner, member or collaborator), who
-is not the author and not a bot, and whose later reviews did not request changes or get dismissed. The second covers
-pull requests into a branch without such a ruleset, such as a stacked pull request. Otherwise "needs a person" fails. A
-review does not start a new pre-check: with `pull_request_review` among the caller's events, a review event derives the
-check of the head again from the stored result (see [Reviews](#reviews-re-derive-the-check)); without it, the check
-changes with the next push or description edit. A separate neutral check run (`frontend-pre-check / outcome`) would show
-the state among the checks, but publishing it needs `checks: write` in every caller: a new required permission, so a
-major release, for a signal the label, the annotation and the comment already give. "Changes needed" and a run that did
-not finish still fail. A pull request that was not pre-checked (fork, draft, bot, no secret, run limit) still fails too,
-as the security review required that a skip never passes; whether it should pass like "needs a person" is an open
-question for the owner.
+collaborator permission API; where that API cannot be read, only the author association owner counts), who is not the
+author and not a bot, and whose later reviews did not request changes or get dismissed. The second covers pull requests
+into a branch without such a ruleset, such as a stacked pull request. Otherwise "needs a person" fails. A review does
+not start a new pre-check: with `pull_request_review` among the caller's events, a review event derives the check of the
+head again from the stored result (see [Reviews](#reviews-re-derive-the-check)); without it, the check changes with the
+next push or description edit. A separate neutral check run (`frontend-pre-check / outcome`) would show the state among
+the checks, but publishing it needs `checks: write` in every caller: a new required permission, so a major release, for
+a signal the label, the annotation and the comment already give. "Changes needed" and a run that did not finish still
+fail. A pull request that was not pre-checked (fork, draft, bot, no secret, run limit) still fails too, as the security
+review required that a skip never passes; whether it should pass like "needs a person" is an open question for the
+owner.
 
 A pull request **needs a person** when any of these holds - each is decided by a rule, not by the model:
 
@@ -423,9 +423,10 @@ With `pull_request_review` (submitted, dismissed, edited) among the caller's eve
 - It passes only when the event is for the current head of the pull request, the stored result is for that head and
   the description and draft state are unchanged since. A stored "needs a person" passes as described above, now with
   the approvals as they are; a stored outcome otherwise keeps its result ("changes needed" stays red).
-- With no stored result for the head - the pre-check of a push is still going, or the comment comes from an older
-  version - it waits for a pre-check run of the head that is still going, then judges; with none, the run fails and
-  the next pre-check sets the check. An event of an older head never passes, so it cannot make any head green.
+- A pre-check run of the head that is still going (a push, an edit, a re-run) is waited for first, before any stored
+  result is trusted; if it is still going at the end of the wait, or the runs cannot be read, the run fails. With no
+  stored result for the head - the comment comes from an older version - the run fails and the next pre-check sets
+  the check. An event of an older head never passes, so it cannot make any head green.
 - It writes nothing to the pull request, and review events have their own concurrency groups: they never cancel the
   gate of a push or replace a publisher that waits, and a newer review event cancels an older one.
 

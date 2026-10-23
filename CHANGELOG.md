@@ -9,8 +9,8 @@ Minor: callers change nothing; adding `pull_request_review` to their events is o
 
 - **An approval of the head lets "needs a person" pass.** Besides a ruleset that requires an approval of the current
   head, the check now passes when the head has one: an `APPROVED` review on the head commit by a person who can write
-  to the repository (write, maintain or admin; the author association owner, member or collaborator where the
-  permission API cannot be read), not the author and not a bot, not withdrawn by a later request for changes or a
+  to the repository (write, maintain or admin; only the author association owner where the permission API cannot
+  be read), not the author and not a bot, not withdrawn by a later request for changes or a
   dismissal. This covers pull requests into a branch without such a ruleset, such as stacked ones.
 - **Reviews re-derive the check.** On `pull_request_review` (submitted, dismissed, edited) the gate answers `review`
   and the review job derives the check of the head again from the outcome the Pre-check comment stores for that head,

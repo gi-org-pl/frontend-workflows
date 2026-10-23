@@ -181,8 +181,10 @@ check "review event: no stored result for the head does not pass" 1 recheck FAKE
 check "review event: a comment of an older version (no stored head) does not pass" 1 recheck FAKE_STORED=""
 check "review event: an older head never turns green" 1 recheck FAKE_HEAD=cccccccccccccccccccccccccccccccccccccccc FAKE_STORED="$HEAD_SHA clean $FP"
 check "review event: a changed description does not pass on the old result" 1 recheck FAKE_BODY="edited" FAKE_STORED="$HEAD_SHA clean $FP"
-check "review event: a pre-check still running is waited for, then judged" 1 recheck FAKE_RUNNING=1 FAKE_STORED=""
+check "review event: a pre-check of the head still going is waited for and then decides" 1 recheck FAKE_RUNNING=1 FAKE_STORED="$HEAD_SHA clean $FP"
 [ "$(grep -c "actions/runs?head_sha=" "$FAKE_LOG")" = 2 ] || { echo "FAIL recheck did not wait"; failures=$((failures + 1)); }
+check "review event: the runs cannot be read" 1 recheck FAKE_FAIL="actions/runs" FAKE_STORED="$HEAD_SHA clean $FP"
+check "review event: an unknown caller workflow" 1 recheck CALLER_REF="" FAKE_STORED="$HEAD_SHA clean $FP"
 # The approval itself is read by review/approval.py through gh; a Windows
 # Python does not run the fake gh, so these run on the Linux runner only.
 if [ "$(uname -s | cut -c1-5)" != MINGW ]; then

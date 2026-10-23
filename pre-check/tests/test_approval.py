@@ -56,10 +56,12 @@ class ApprovalTest(unittest.TestCase):
     def test_read_access_does_not_count(self):
         self.assertEqual(found([review("reader", association="CONTRIBUTOR")], {"reader": "read"}), [])
 
-    def test_the_association_stands_in_when_the_permission_api_is_not_readable(self):
+    def test_without_the_permission_api_only_an_owner_counts(self):
         denied = GitHubError("403")
-        self.assertEqual(found([review("member", association="MEMBER")], {"member": denied}), ["member"])
-        self.assertEqual(found([review("outsider", association="CONTRIBUTOR")], {"outsider": denied}), [])
+        self.assertEqual(found([review("owner", association="OWNER")], {"owner": denied}), ["owner"])
+        # Membership or an invitation does not prove write access: fail closed.
+        self.assertEqual(found([review("member", association="MEMBER")], {"member": denied}), [])
+        self.assertEqual(found([review("helper", association="COLLABORATOR")], {"helper": denied}), [])
 
     def test_the_command_line(self):
         self.assertEqual(approval.main(["approval.py", REPO, "7", "not-a-sha"]), 2)

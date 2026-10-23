@@ -11,8 +11,10 @@ gate. An approval counts when:
   needs a new one,
 - the reviewer is not the author of the pull request and not a bot,
 - the reviewer can write to the repository: write, maintain or admin by the
-  collaborator permission API; where that API cannot be read with the token,
-  the review's author association OWNER, MEMBER or COLLABORATOR.
+  collaborator permission API. Where that API cannot be read, only the
+  author association OWNER stands in (an owner administers the repository);
+  MEMBER and COLLABORATOR do not prove write access, so such an approval does
+  not count then.
 
 Nothing from the review body is read.
 
@@ -31,7 +33,7 @@ import github  # noqa: E402
 
 DECISIVE = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
 WRITERS = {"admin", "maintain", "write"}
-TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
+OWNER = "OWNER"
 LOGIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 
 
@@ -58,7 +60,7 @@ def can_write(gh, repo, login, review):
     try:
         answer = gh.api("repos/{}/collaborators/{}/permission".format(repo, login)) or {}
     except github.GitHubError:
-        return review.get("author_association") in TRUSTED
+        return review.get("author_association") == OWNER  # fail closed for everyone else
     return answer.get("permission") in WRITERS or answer.get("role_name") in WRITERS
 
 
