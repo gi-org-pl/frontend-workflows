@@ -3,7 +3,7 @@
 All notable changes to the workflows of this repository. Versions follow [the versioning
 policy](docs/INDEX.md#versioning).
 
-## Unreleased
+## 2.1.0 - 2026-10-23
 
 Minor: callers change nothing; adding `pull_request_review` to their events is optional.
 
