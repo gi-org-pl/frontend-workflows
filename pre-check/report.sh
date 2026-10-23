@@ -118,11 +118,11 @@ human_passes() { # after human_gate: the annotation, and whether "human" passes
   echo "Needs a person's review; the check passes: $( [ "$APPROVAL_GATE" = approved ] && echo "a person approved this commit" || echo "the base branch requires an approval of the current head")."
 }
 
-# The stored state of the Pre-check comment: "head outcome fingerprint", or
+# The stored state of the Pre-check comment: "head outcome fingerprint base", or
 # nothing for a comment without one (a comment of an older version).
 stored_state() {
   gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
-    --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\"))) | .body | match(\"$STATE event_time=[0-9TZ:-]{20} fingerprint=([0-9a-f]{64}|none) head=([0-9a-f]{40}) outcome=([a-z]+)\").captures | \"\\(.[1].string) \\(.[2].string) \\(.[0].string)\"" | sed -n 1p
+    --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\"))) | .body | match(\"$STATE event_time=[0-9TZ:-]{20} fingerprint=([0-9a-f]{64}|none) head=([0-9a-f]{40}) base=([0-9a-f]{40}|none) outcome=([a-z]+)\").captures | \"\\(.[1].string) \\(.[3].string) \\(.[0].string) \\(.[2].string)\"" | sed -n 1p
 }
 
 # The event time recorded in the Pre-check comment ("" when there is none).
@@ -190,7 +190,7 @@ upsert_comment() {
   local file="$1" id stamped
   if [ -n "$EVENT_TIME" ]; then
     stamped=$(mktemp)
-    { sed -n 1p "$file"; echo "<!-- $STATE event_time=$EVENT_TIME fingerprint=${FINGERPRINT:-none} head=$HEAD_SHA outcome=${STORED_OUTCOME:-invalid} -->"; sed -n '2,$p' "$file"; } > "$stamped"
+    { sed -n 1p "$file"; echo "<!-- $STATE event_time=$EVENT_TIME fingerprint=${FINGERPRINT:-none} head=$HEAD_SHA base=${BASE_SHA:-none} outcome=${STORED_OUTCOME:-invalid} -->"; sed -n '2,$p' "$file"; } > "$stamped"
     file="$stamped"
   fi
   id=$(comment_id) || id=""
@@ -354,9 +354,14 @@ recheck)
     echo "::error title=Pre-check::A pre-check of commit ${HEAD_SHA:0:7} is still going; it sets the check."
     exit 1
   fi
-  read -r stored_head stored_outcome stored_fingerprint < <(stored_state || true) || true
+  read -r stored_head stored_outcome stored_fingerprint stored_base < <(stored_state || true) || true
   if [ "${stored_head:-}" != "$HEAD_SHA" ]; then
     echo "::error title=Pre-check::No pre-check result is stored for commit ${HEAD_SHA:0:7}, so a review cannot change the check. It is set by the pre-check of the next push or description edit, or by a re-run of the last one."
+    exit 1
+  fi
+  # The stored outcome holds only for the base it was reviewed against.
+  if [ "${stored_base:-none}" = none ] || [ "$(jq -r .base.sha "$pr")" != "$stored_base" ]; then
+    echo "::error title=Pre-check::The base branch moved since the stored result (or it names no base); the pre-check of the head against the new base sets the check."
     exit 1
   fi
   if [ "${stored_fingerprint:-}" != none ] && [ "$(python3 "$CONTRACTS" fingerprint "$pr")" != "$stored_fingerprint" ]; then

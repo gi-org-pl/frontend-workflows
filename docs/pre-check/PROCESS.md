@@ -418,11 +418,11 @@ With `pull_request_review` (submitted, dismissed, edited) among the caller's eve
 - The gate answers `review`; nothing is analysed and no secret is used, so the path works for any pull request, and a
   fork's read-only token is enough.
 - The review job reads the outcome the Pre-check comment stores for the head: its hidden state line, written by the
-  workflow as `github-actions[bot]`, names the head commit, the outcome and the fingerprint of the description and
-  draft state. Nothing from the review body is read.
+  workflow as `github-actions[bot]`, names the head and base commits, the outcome and the fingerprint of the
+  description and draft state. Nothing from the review body is read.
 - It passes only when the event is for the current head of the pull request, the stored result is for that head and
-  the description and draft state are unchanged since. A stored "needs a person" passes as described above, now with
-  the approvals as they are; a stored outcome otherwise keeps its result ("changes needed" stays red).
+  the base, the description and the draft state are unchanged since. A stored "needs a person" passes as described
+  above, now with the approvals as they are; a stored outcome otherwise keeps its result ("changes needed" stays red).
 - A pre-check run of the head that is still going (a push, an edit, a re-run) is waited for first, before any stored
   result is trusted; if it is still going at the end of the wait, or the runs cannot be read, the run fails. With no
   stored result for the head - the comment comes from an older version - the run fails and the next pre-check sets

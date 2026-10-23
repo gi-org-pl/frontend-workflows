@@ -150,7 +150,7 @@ posted_has "## Pre-check: ❌ not finished · the reviewer did not complete" || 
 mk_result '[]'
 older="EVENT_TIME=2026-10-21T10:00:00Z FINGERPRINT=$FP RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
 check "the newest event publishes and records its time" 0 env EVENT_TIME=2026-10-21T10:05:00Z FINGERPRINT="$FP" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
-posted_has "gi-pre-check-state event_time=2026-10-21T10:05:00Z fingerprint=$FP head=$HEAD_SHA outcome=clean -->" || { echo "FAIL state marker"; failures=$((failures + 1)); }
+posted_has "gi-pre-check-state event_time=2026-10-21T10:05:00Z fingerprint=$FP head=$HEAD_SHA base=$BASE_SHA outcome=clean -->" || { echo "FAIL state marker"; failures=$((failures + 1)); }
 [ "$(sed -n 1p "$FAKE_POSTED")" = "<!-- gi-pre-check -->" ] || { echo "FAIL marker not first"; failures=$((failures + 1)); }
 check "an older publisher after a newer one, same head, same text: superseded" 1 env FAKE_PUBLISHED_TIME=2026-10-21T10:05:00Z bash -c "$older"
 if grep -q "comments -F\|comments/.* -F\|labels" "$FAKE_LOG" || [ -e "$FAKE_POSTED" ]; then echo "FAIL superseded run wrote"; failures=$((failures + 1)); fi
@@ -170,33 +170,35 @@ posted_has "event_time=2026-10-21T10:00:00Z" || { echo "FAIL newer run did not o
 # again from the stored result and the approvals as they are now.
 export RECHECK_SLEEP=0 RECHECK_WAITS=2 CALLER_REF=gi-org-pl/x/.github/workflows/frontend-pre-check.yml@refs/pull/1/merge
 recheck() { env "$@" bash "$HERE/report.sh" recheck; }
-check "review event: a stored human result without an approval or rule fails" 1 recheck FAKE_GATE="" FAKE_STORED="$HEAD_SHA human $FP"
-check "review event: a stored human result passes where the rule requires a current-head approval" 0 recheck FAKE_STORED="$HEAD_SHA human $FP"
+check "review event: a stored human result without an approval or rule fails" 1 recheck FAKE_GATE="" FAKE_STORED="$HEAD_SHA human $FP $BASE_SHA"
+check "review event: a stored human result passes where the rule requires a current-head approval" 0 recheck FAKE_STORED="$HEAD_SHA human $FP $BASE_SHA"
 grep -q "::warning title=Pre-check::Needs a person's review" "$T/out" || { echo "FAIL recheck warning"; failures=$((failures + 1)); }
 if grep -q -- "-X PATCH\|comments -F\|labels -f\|-X DELETE" "$FAKE_LOG"; then echo "FAIL recheck wrote to the pull request"; failures=$((failures + 1)); fi
-check "review event: stored changes stay failing" 1 recheck FAKE_STORED="$HEAD_SHA changes $FP"
-check "review event: stored clean stays passing" 0 recheck FAKE_STORED="$HEAD_SHA clean $FP"
-check "review event: a stored skip stays failing" 1 recheck FAKE_STORED="$HEAD_SHA skipped $FP"
-check "review event: no stored result for the head does not pass" 1 recheck FAKE_STORED="cccccccccccccccccccccccccccccccccccccccc human $FP"
+check "review event: stored changes stay failing" 1 recheck FAKE_STORED="$HEAD_SHA changes $FP $BASE_SHA"
+check "review event: stored clean stays passing" 0 recheck FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: a stored skip stays failing" 1 recheck FAKE_STORED="$HEAD_SHA skipped $FP $BASE_SHA"
+check "review event: no stored result for the head does not pass" 1 recheck FAKE_STORED="cccccccccccccccccccccccccccccccccccccccc human $FP $BASE_SHA"
 check "review event: a comment of an older version (no stored head) does not pass" 1 recheck FAKE_STORED=""
-check "review event: an older head never turns green" 1 recheck FAKE_HEAD=cccccccccccccccccccccccccccccccccccccccc FAKE_STORED="$HEAD_SHA clean $FP"
-check "review event: a changed description does not pass on the old result" 1 recheck FAKE_BODY="edited" FAKE_STORED="$HEAD_SHA clean $FP"
-check "review event: a pre-check of the head still going is waited for and then decides" 1 recheck FAKE_RUNNING=1 FAKE_STORED="$HEAD_SHA clean $FP"
+check "review event: an older head never turns green" 1 recheck FAKE_HEAD=cccccccccccccccccccccccccccccccccccccccc FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: a moved base does not pass on the old result" 1 recheck FAKE_BASE=dddddddddddddddddddddddddddddddddddddddd FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: a stored result that names no base does not pass" 1 recheck FAKE_STORED="$HEAD_SHA clean $FP none"
+check "review event: a changed description does not pass on the old result" 1 recheck FAKE_BODY="edited" FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: a pre-check of the head still going is waited for and then decides" 1 recheck FAKE_RUNNING=1 FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
 [ "$(grep -c "actions/runs?head_sha=" "$FAKE_LOG")" = 2 ] || { echo "FAIL recheck did not wait"; failures=$((failures + 1)); }
-check "review event: the runs cannot be read" 1 recheck FAKE_FAIL="actions/runs" FAKE_STORED="$HEAD_SHA clean $FP"
-check "review event: an unknown caller workflow" 1 recheck CALLER_REF="" FAKE_STORED="$HEAD_SHA clean $FP"
+check "review event: the runs cannot be read" 1 recheck FAKE_FAIL="actions/runs" FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: an unknown caller workflow" 1 recheck CALLER_REF="" FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
 # The approval itself is read by review/approval.py through gh; a Windows
 # Python does not run the fake gh, so these run on the Linux runner only.
 if [ "$(uname -s | cut -c1-5)" != MINGW ]; then
   approved="[{\"user\": {\"login\": \"maintainer\", \"type\": \"User\"}, \"state\": \"APPROVED\", \"commit_id\": \"$HEAD_SHA\"}]"
-  check "review event: an approval of the head by a writer lets a stored human result pass" 0 recheck FAKE_GATE="" FAKE_REVIEWS="$approved" FAKE_STORED="$HEAD_SHA human $FP"
+  check "review event: an approval of the head by a writer lets a stored human result pass" 0 recheck FAKE_GATE="" FAKE_REVIEWS="$approved" FAKE_STORED="$HEAD_SHA human $FP $BASE_SHA"
   old="[{\"user\": {\"login\": \"maintainer\", \"type\": \"User\"}, \"state\": \"APPROVED\", \"commit_id\": \"$BASE_SHA\"}]"
-  check "review event: an approval of an older head does not" 1 recheck FAKE_GATE="" FAKE_REVIEWS="$old" FAKE_STORED="$HEAD_SHA human $FP"
+  check "review event: an approval of an older head does not" 1 recheck FAKE_GATE="" FAKE_REVIEWS="$old" FAKE_STORED="$HEAD_SHA human $FP $BASE_SHA"
   mk_result '[]'
   check "a new result that needs a person passes with an approval of the head" 0 env FAKE_GATE="" FAKE_REVIEWS="$approved" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
   posted_has "The check passes: a person who can write to the repository approved this commit" || { echo "FAIL approved comment"; failures=$((failures + 1)); }
 fi
-check "publish: a review event dispatches to recheck" 0 env GATE=success VERDICT=review ANALYSE=skipped FAKE_STORED="$HEAD_SHA clean $FP" bash "$HERE/report.sh" publish
+check "publish: a review event dispatches to recheck" 0 env GATE=success VERDICT=review ANALYSE=skipped FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA" bash "$HERE/report.sh" publish
 
 # The review job's dispatch (report.sh publish) for every way the gate and the
 # analysis can end.

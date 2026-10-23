@@ -14,8 +14,9 @@ Minor: callers change nothing; adding `pull_request_review` to their events is o
   dismissal. This covers pull requests into a branch without such a ruleset, such as stacked ones.
 - **Reviews re-derive the check.** On `pull_request_review` (submitted, dismissed, edited) the gate answers `review`
   and the review job derives the check of the head again from the outcome the Pre-check comment stores for that head,
-  with no new review, no secret and no writes. An event of an older head, a missing stored result or a changed
-  description does not pass. The Pre-check comment's hidden state line now also names the head and the outcome.
+  with no new review, no secret and no writes. An event of an older head, a missing stored result, a moved base or a
+  changed description does not pass. The Pre-check comment's hidden state line now also names the head, the base and
+  the outcome.
   Optional for callers:
 
   ```yaml
