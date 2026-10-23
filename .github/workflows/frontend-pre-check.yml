@@ -19,7 +19,9 @@ name: frontend-pre-check
 #             outcomes pass.
 #
 # Callers trigger it on pull_request (opened, synchronize, reopened,
-# ready_for_review, converted_to_draft, edited) and merge_group, grant
+# ready_for_review, converted_to_draft, edited), merge_group and, optionally,
+# pull_request_review (submitted, dismissed, edited: the check of the head is
+# derived again from the stored result, with no new review), grant
 # contents: read, pull-requests: write, issues: write, actions: read and
 # checks: read, and pass the secret CLAUDE_CODE_OAUTH_TOKEN.
 
@@ -101,7 +103,8 @@ jobs:
       actions: read
     # A burst of events on one pull request cancels the waiting gates.
     concurrency:
-      group: frontend-pre-check-gate-${{ github.repository }}-${{ github.event.pull_request.number || github.run_id }}
+      # Review events have their own group: they never cancel the gate of a push.
+      group: frontend-pre-check-gate-${{ github.repository }}-${{ github.event.pull_request.number || github.run_id }}${{ github.event_name == 'pull_request_review' && '-review' || '' }}
       cancel-in-progress: true
     outputs:
       verdict: ${{ steps.decide.outputs.verdict }}
@@ -285,19 +288,25 @@ jobs:
     # would count as passed.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A review event may wait for the pre-check of the head (report.sh recheck).
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
       issues: write
       checks: read
+      # A review event looks for a pre-check run of the head that is still going.
+      actions: read
     # One publisher per pull request at a time, across runs. GitHub does not
     # keep them in event order, so report.sh also refuses to publish for an
     # event older than the one the Pre-check comment answers, or when the
     # description or draft state changed since the gate (FINGERPRINT).
+    # Review events write nothing and have their own group, so they never
+    # replace a publisher waiting in this one; a newer review event cancels an
+    # older one.
     concurrency:
-      group: frontend-pre-check-publish-${{ github.repository }}-${{ github.event.pull_request.number || github.event.merge_group.head_ref || github.run_id }}
-      cancel-in-progress: false
+      group: frontend-pre-check-publish-${{ github.repository }}-${{ github.event.pull_request.number || github.event.merge_group.head_ref || github.run_id }}${{ github.event_name == 'pull_request_review' && '-review' || '' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request_review' }}
     steps:
       - name: Check out the pre-check scripts
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -339,6 +348,7 @@ jobs:
           MERGE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           MERGE_BASE_REF: ${{ github.event.merge_group.base_ref }}
           CHECK_RUN_ID: ${{ job.check_run_id }}
+          CALLER_REF: ${{ github.workflow_ref }}
           WORKFLOW_SHA: ${{ job.workflow_sha }}
           GH_TOKEN: ${{ github.token }}
         run: bash .pre-check-tools/pre-check/report.sh publish

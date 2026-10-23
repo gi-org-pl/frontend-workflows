@@ -5,7 +5,25 @@ policy](docs/INDEX.md#versioning).
 
 ## Unreleased
 
-Patch.
+Minor: callers change nothing; adding `pull_request_review` to their events is optional.
+
+- **An approval of the head lets "needs a person" pass.** Besides a ruleset that requires an approval of the current
+  head, the check now passes when the head has one: an `APPROVED` review on the head commit by a person who can write
+  to the repository (write, maintain or admin; only the author association owner where the permission API cannot
+  be read), not the author and not a bot, not withdrawn by a later request for changes or a
+  dismissal. This covers pull requests into a branch without such a ruleset, such as stacked ones.
+- **Reviews re-derive the check.** On `pull_request_review` (submitted, dismissed, edited) the gate answers `review`
+  and the review job derives the check of the head again from the outcome the Pre-check comment stores for that head,
+  with no new review, no secret and no writes. An event of an older head, a missing stored result, a moved base or a
+  changed description does not pass. The Pre-check comment's hidden state line now also names the head, the base and
+  the outcome.
+  Optional for callers:
+
+  ```yaml
+  on:
+    pull_request_review:
+      types: [submitted, dismissed, edited]
+  ```
 
 - Issue references: a blank quoted line ends a paragraph, so backticks do not pair across it.
 

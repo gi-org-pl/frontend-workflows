@@ -22,6 +22,12 @@
 #               CHECK_RUN_ID), otherwise "human"
 #   report      evaluate, render and publish RESULT_FILE with SCOPE_FILE
 #   error       outcome "invalid" (REASON is a fixed code), exit 1
+#   recheck     pull_request_review: no new review and no writes; the check
+#               of the current head is derived again from the outcome the
+#               Pre-check comment stores for that head, with the approvals as
+#               they are now (see human_gate). A pre-check run of the head
+#               that is still going is waited for first (CALLER_REF names the
+#               caller workflow); still going, or no stored outcome: fails.
 #
 # Environment: REPO, PR_NUMBER, HEAD_SHA, BASE_SHA, GH_TOKEN, RUN_URL, MODEL,
 # WORKFLOW_SHA, RESULT_FILE, SCOPE_FILE, COVERAGE, USAGE_JSON, TOOLS_USED,
@@ -82,6 +88,41 @@ current_head_approval_required() {
     | .parameters | select((.required_approving_review_count // 0) >= 1
       and ((.dismiss_stale_reviews_on_push // false) or (.require_last_push_approval // false))) | "gate"') || return 1
   [ -n "$gate" ]
+}
+
+# Sets APPROVAL_GATE: "current-head" where a ruleset requires an approval of
+# the current head, "approved" where a person who can write to the repository,
+# not the author and not a bot, approved this head and did not withdraw it
+# (review/approval.py), "none" otherwise. Only the first two let "human" pass.
+human_gate() {
+  if current_head_approval_required; then
+    APPROVAL_GATE="current-head"
+  elif python3 "$HERE/review/approval.py" "$REPO" "$PR_NUMBER" "$HEAD_SHA" > /dev/null; then
+    APPROVAL_GATE="approved"
+  else
+    APPROVAL_GATE="none"
+  fi
+  export APPROVAL_GATE
+}
+
+human_passes() { # after human_gate: the annotation, and whether "human" passes
+  local reasons="$1"
+  echo "::warning title=Pre-check::Needs a person's review: $reasons."
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '**Needs a person'"'"'s review:** %s.\n' "$reasons" >> "$GITHUB_STEP_SUMMARY" || true
+  fi
+  if [ "$APPROVAL_GATE" = none ]; then
+    echo "::error title=Pre-check::Needs a person's review: no approval of commit ${HEAD_SHA:0:7} by a person who can write to the repository (not the author), and the base branch does not require one (a ruleset with at least one approval and \"dismiss stale approvals\" or \"require approval of the most recent push\"), so the check fails. An approval turns it green. See PROCESS.md, Approval."
+    return 1
+  fi
+  echo "Needs a person's review; the check passes: $( [ "$APPROVAL_GATE" = approved ] && echo "a person approved this commit" || echo "the base branch requires an approval of the current head")."
+}
+
+# The stored state of the Pre-check comment: "head outcome fingerprint base", or
+# nothing for a comment without one (a comment of an older version).
+stored_state() {
+  gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+    --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARKER\"))) | .body | match(\"$STATE event_time=[0-9TZ:-]{20} fingerprint=([0-9a-f]{64}|none) head=([0-9a-f]{40}) base=([0-9a-f]{40}|none) outcome=([a-z]+)\").captures | \"\\(.[1].string) \\(.[3].string) \\(.[0].string) \\(.[2].string)\"" | sed -n 1p
 }
 
 # The event time recorded in the Pre-check comment ("" when there is none).
@@ -149,7 +190,7 @@ upsert_comment() {
   local file="$1" id stamped
   if [ -n "$EVENT_TIME" ]; then
     stamped=$(mktemp)
-    { sed -n 1p "$file"; echo "<!-- $STATE event_time=$EVENT_TIME fingerprint=${FINGERPRINT:-none} -->"; sed -n '2,$p' "$file"; } > "$stamped"
+    { sed -n 1p "$file"; echo "<!-- $STATE event_time=$EVENT_TIME fingerprint=${FINGERPRINT:-none} head=$HEAD_SHA base=${BASE_SHA:-none} outcome=${STORED_OUTCOME:-invalid} -->"; sed -n '2,$p' "$file"; } > "$stamped"
     file="$stamped"
   fi
   id=$(comment_id) || id=""
@@ -184,6 +225,7 @@ publish)
   fi
   case "${VERDICT:-}" in
     queue) exec bash "$0" queue ;;
+    review) exec bash "$0" recheck ;;
     skip | block) SKIP_REASON="${GATE_REASON:-}" exec bash "$0" notchecked ;;
     run) ;;
     *) echo "Unknown verdict."; exit 1 ;;
@@ -214,6 +256,7 @@ notchecked)
   # The headline gives the reason in a few words: up to its first ";" or ",".
   short="${SKIP_REASON:-the run was skipped}"
   short="${short%%[;,]*}"
+  STORED_OUTCOME=skipped
   note_comment "⏭️ not pre-checked · ${short%.}" "Commit \`${HEAD_SHA:0:7}\` was not pre-checked: ${SKIP_REASON:-the run was skipped.} A person reviews this pull request; the \`frontend-pre-check / review\` check fails until a pre-check runs, so merging needs a person with the right to bypass it." \
     || echo "::warning::Could not update the Pre-check comment."
   echo "::error title=Pre-check::Not pre-checked. See the Pre-check comment on the pull request."
@@ -269,9 +312,70 @@ error)
     *) short="the reviewer did not complete"; text="the reviewer did not complete (a common cause is the usage limit of the subscription; re-run the job later)." ;;
   esac
   guard || true
+  STORED_OUTCOME=invalid
   note_comment "❌ not finished · $short" "Commit \`${HEAD_SHA:0:7}\`: $text See the [workflow run]($RUN_URL). Nothing was decided: a person reviews the pull request."
   echo "::error title=Pre-check::The pre-check did not finish."
   finish invalid
+  ;;
+recheck)
+  : "${PR_NUMBER:?}" "${HEAD_SHA:?}"
+  pr=$(mktemp)
+  if ! gh api "repos/$REPO/pulls/$PR_NUMBER" > "$pr"; then
+    echo "::error title=Pre-check::Could not read the pull request."
+    exit 1
+  fi
+  current=$(jq -r .head.sha "$pr")
+  # A review event of an older head never makes any head green.
+  if [ "$current" != "$HEAD_SHA" ]; then
+    echo "::error title=Pre-check::This review event is for commit ${HEAD_SHA:0:7}, but the pull request is at ${current:0:7}; this run does not pass."
+    exit 1
+  fi
+  # A pre-check of this head that is still going (a push, an edit or a
+  # re-run) decides: wait for it before trusting any stored result, so that
+  # this run never ends on an outcome that run is about to replace. If that
+  # cannot be told, or it is still going at the end of the wait, do not pass.
+  # The runs API may give the path with a ref ("…yml@main"); both sides drop it.
+  path="${CALLER_REF#"$REPO"/}"
+  path="${path%%@*}"
+  if ! [[ "$path" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+    echo "::error title=Pre-check::The caller workflow is unknown, so a running pre-check cannot be ruled out."
+    exit 1
+  fi
+  running=1
+  for _ in $(seq 1 "${RECHECK_WAITS:-36}"); do
+    if ! running=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" \
+      --jq "[.workflow_runs[] | select((.path // \"\" | split(\"@\")[0]) == \"$path\" and .status != \"completed\")] | length"); then
+      echo "::error title=Pre-check::Could not read the workflow runs of commit ${HEAD_SHA:0:7}; this run does not pass."
+      exit 1
+    fi
+    [ "$running" != 0 ] || break
+    sleep "${RECHECK_SLEEP:-20}"
+  done
+  if [ "$running" != 0 ]; then
+    echo "::error title=Pre-check::A pre-check of commit ${HEAD_SHA:0:7} is still going; it sets the check."
+    exit 1
+  fi
+  read -r stored_head stored_outcome stored_fingerprint stored_base < <(stored_state || true) || true
+  if [ "${stored_head:-}" != "$HEAD_SHA" ]; then
+    echo "::error title=Pre-check::No pre-check result is stored for commit ${HEAD_SHA:0:7}, so a review cannot change the check. It is set by the pre-check of the next push or description edit, or by a re-run of the last one."
+    exit 1
+  fi
+  # The stored outcome holds only for the base it was reviewed against.
+  if [ "${stored_base:-none}" = none ] || [ "$(jq -r .base.sha "$pr")" != "$stored_base" ]; then
+    echo "::error title=Pre-check::The base branch moved since the stored result (or it names no base); the pre-check of the head against the new base sets the check."
+    exit 1
+  fi
+  if [ "${stored_fingerprint:-}" != none ] && [ "$(python3 "$CONTRACTS" fingerprint "$pr")" != "$stored_fingerprint" ]; then
+    echo "::error title=Pre-check::The description or the draft state changed after the stored result; the pre-check of that change sets the check."
+    exit 1
+  fi
+  echo "Stored outcome for ${HEAD_SHA:0:7}: $stored_outcome."
+  if [ "$stored_outcome" = human ]; then
+    human_gate
+    human_passes "the stored result of commit ${HEAD_SHA:0:7} needs a person" || exit 1
+    exit 0
+  fi
+  finish "$stored_outcome"
   ;;
 report) ;;
 *)
@@ -297,20 +401,22 @@ fi
 FINGERPRINT=$analysed
 # Known before anything is rendered, so the comment says whether a "needs a
 # person" result passes here (see current_head_approval_required).
-if current_head_approval_required; then APPROVAL_GATE="current-head"; else APPROVAL_GATE="none"; fi
-export APPROVAL_GATE
+human_gate
 # A result withheld in the analyse job (package.py) has no text to render.
 if [ "$(jq -r .withheld "$out/evaluation.json")" != true ]; then
   python3 "$HERE/review/render.py" "$RESULT_FILE" "$SCOPE_FILE" "$out/evaluation.json" "$out"
   python3 "$HERE/review/evaluate.py" check-output "$out/evaluation.json" "$out/comment.md" "$out/inline.json"
 fi
 outcome=$(jq -r .outcome "$out/evaluation.json")
+# The Pre-check comment stores the outcome of this head for review events.
+STORED_OUTCOME="$outcome"
 if [ "$(jq -r .withheld "$out/evaluation.json")" = true ]; then
   python3 "$HERE/review/render.py" withheld "$out/evaluation.json" "$out"
 fi
 
 if ! guard; then
   remove_labels
+  STORED_OUTCOME=invalid
   note_comment "❌ not current · the base branch moved" "The base branch moved while commit \`${HEAD_SHA:0:7}\` was being reviewed, so the result is not published. Re-run the job." || true
   echo "::error title=Pre-check::The base branch moved during the review; re-run the job."
   exit 1
@@ -374,14 +480,7 @@ if [ "$outcome" = human ]; then
   # annotation, the label and the comment say that the pull request needs one;
   # the reasons are fixed texts.
   reasons=$(jq -r '.reasons | join("; ")' "$out/evaluation.json")
-  echo "::warning title=Pre-check::Needs a person's review: $reasons."
-  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-    printf '**Needs a person'"'"'s review:** %s.\n' "$reasons" >> "$GITHUB_STEP_SUMMARY" || true
-  fi
-  if [ "$APPROVAL_GATE" != current-head ]; then
-    echo "::error title=Pre-check::Needs a person's review, and the base branch does not require an approval of the current head (a ruleset with at least one approval and \"dismiss stale approvals\" or \"require approval of the most recent push\"), so the check fails. See PROCESS.md, Approval."
-    exit 1
-  fi
+  human_passes "$reasons" || exit 1
 fi
 python3 "$CONTRACTS" passes "$outcome" || echo "::error title=Pre-check::The pre-check did not pass ($outcome). See the Pre-check comment on the pull request."
 finish "$outcome"

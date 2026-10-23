@@ -8,6 +8,8 @@ branch of it without GitHub.
 Verdicts (written to GITHUB_OUTPUT as verdict= and reason=):
   run     review the pull request
   queue   a merge queue entry; the review job checks its pull requests
+  review  a pull_request_review event; the review job derives the check of
+          the current head again from the stored result, with no new review
   skip    not pre-checked (fork, draft, no secret, bot, no write access, other
           event); the review job FAILS - a skip is never a green check
   block   over the hourly run limit; the review job fails as well
@@ -74,7 +76,8 @@ def runs_last_hour(gh, env, now):
     count = 0
     for page in pages:
         for run in page.get("workflow_runs", []):
-            if run.get("path") == path and run.get("conclusion") != "skipped" and any(
+            # The path may come with a ref ("...yml@main").
+            if (run.get("path") or "").split("@")[0] == path and run.get("conclusion") != "skipped" and any(
                     p.get("number") == number for p in run.get("pull_requests") or []):
                 count += 1
     return count
@@ -85,6 +88,10 @@ def decide(gh, env, now=None, sleep=time.sleep):
     event = env.get("EVENT", "")
     if event == "merge_group":
         return "queue", "a merge queue entry; its pull requests must have passed the pre-check on their heads."
+    if event == "pull_request_review":
+        # No new review and no secret: the review job derives the check of the
+        # current head again from the stored result and the approvals.
+        return "review", "a review was submitted, dismissed or edited; the check is derived again from the stored result."
     if event != "pull_request":
         return "skip", "the event is {}, which the pre-check does not review.".format(re.sub(r"[^a-z_]", "", event))
     if env.get("HEAD_REPO") != env.get("REPO"):

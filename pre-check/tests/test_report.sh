@@ -18,7 +18,11 @@ case "$args" in
     if [ -n "${FAKE_HEAD_AFTER_LABEL:-}" ] && grep -q "issues/1/labels -f" "$FAKE_LOG"; then head=$FAKE_HEAD_AFTER_LABEL; fi
     jq -n --arg h "$head" --arg b "$FAKE_BASE" --arg body "${FAKE_BODY:-}" \
       --argjson d "${FAKE_DRAFT:-false}" '{head: {sha: $h}, base: {sha: $b}, draft: $d, body: $body}' ;;
+  *"issues/1/comments?per_page=100"*"head=("*) echo "${FAKE_STORED:-}" ;;
   *"issues/1/comments?per_page=100"*"event_time"*) echo "${FAKE_PUBLISHED_TIME:-}" ;;
+  *"pulls/1/reviews"*) echo "${FAKE_REVIEWS:-[]}" ;;
+  *"collaborators/"*"/permission"*) echo '{"permission": "write"}' ;;
+  *"actions/runs?head_sha="*) echo "${FAKE_RUNNING:-0}" ;;
   *"pulls/1 --jq .base.ref"*) echo main ;;
   *"rules/branches/main"*) echo "${FAKE_GATE-gate}" ;;
   *"pulls/"*" --jq .head.sha"*) echo "$FAKE_HEAD" ;;
@@ -125,8 +129,8 @@ check "an incomplete reading needs a person and passes with a warning" 0 bash -c
 grep -q "::warning title=Pre-check::Needs a person's review: the reviewer did not read the whole diff." "$T/out" || { echo "FAIL human warning annotation"; failures=$((failures + 1)); }
 labelled "pre-check: human review" || { echo "FAIL human label"; failures=$((failures + 1)); }
 check "needs a person without a current-head approval rule fails" 1 env FAKE_GATE="" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
-grep -q "does not require an approval of the current head" "$T/out" || { echo "FAIL no-gate error"; failures=$((failures + 1)); }
-posted_has "The check fails: the base branch does not require an approval of the current head" || { echo "FAIL no-gate comment"; failures=$((failures + 1)); }
+grep -q "no approval of commit .* and the base branch does not require one" "$T/out" || { echo "FAIL no-gate error"; failures=$((failures + 1)); }
+posted_has "The check fails until a person who can write to the repository, other than the author, approves this commit" || { echo "FAIL no-gate comment"; failures=$((failures + 1)); }
 check "needs a person when the rules cannot be read fails" 1 env FAKE_FAIL="rules/branches" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
 posted_has "## Pre-check: ⚠️ needs a person (the reviewer did not read the whole diff)" || { echo "FAIL human headline"; failures=$((failures + 1)); }
 
@@ -146,7 +150,7 @@ posted_has "## Pre-check: ❌ not finished · the reviewer did not complete" || 
 mk_result '[]'
 older="EVENT_TIME=2026-10-21T10:00:00Z FINGERPRINT=$FP RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
 check "the newest event publishes and records its time" 0 env EVENT_TIME=2026-10-21T10:05:00Z FINGERPRINT="$FP" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=full bash '$HERE/report.sh' report"
-posted_has "gi-pre-check-state event_time=2026-10-21T10:05:00Z fingerprint=$FP" || { echo "FAIL state marker"; failures=$((failures + 1)); }
+posted_has "gi-pre-check-state event_time=2026-10-21T10:05:00Z fingerprint=$FP head=$HEAD_SHA base=$BASE_SHA outcome=clean -->" || { echo "FAIL state marker"; failures=$((failures + 1)); }
 [ "$(sed -n 1p "$FAKE_POSTED")" = "<!-- gi-pre-check -->" ] || { echo "FAIL marker not first"; failures=$((failures + 1)); }
 check "an older publisher after a newer one, same head, same text: superseded" 1 env FAKE_PUBLISHED_TIME=2026-10-21T10:05:00Z bash -c "$older"
 if grep -q "comments -F\|comments/.* -F\|labels" "$FAKE_LOG" || [ -e "$FAKE_POSTED" ]; then echo "FAIL superseded run wrote"; failures=$((failures + 1)); fi
@@ -161,6 +165,40 @@ check "a description changed while the context was gathered: superseded" 1 env E
 check "the same event re-run publishes again" 0 env FAKE_PUBLISHED_TIME=2026-10-21T10:00:00Z bash -c "$older"
 check "a comment from an older event is overwritten" 0 env FAKE_PUBLISHED_TIME=2026-10-21T09:00:00Z bash -c "$older"
 posted_has "event_time=2026-10-21T10:00:00Z" || { echo "FAIL newer run did not overwrite"; failures=$((failures + 1)); }
+
+# A review event: no new review, no writes; the check of the head is derived
+# again from the stored result and the approvals as they are now.
+export RECHECK_SLEEP=0 RECHECK_WAITS=2 CALLER_REF=gi-org-pl/x/.github/workflows/frontend-pre-check.yml@refs/pull/1/merge
+recheck() { env "$@" bash "$HERE/report.sh" recheck; }
+check "review event: a stored human result without an approval or rule fails" 1 recheck FAKE_GATE="" FAKE_STORED="$HEAD_SHA human $FP $BASE_SHA"
+check "review event: a stored human result passes where the rule requires a current-head approval" 0 recheck FAKE_STORED="$HEAD_SHA human $FP $BASE_SHA"
+grep -q "::warning title=Pre-check::Needs a person's review" "$T/out" || { echo "FAIL recheck warning"; failures=$((failures + 1)); }
+if grep -q -- "-X PATCH\|comments -F\|labels -f\|-X DELETE" "$FAKE_LOG"; then echo "FAIL recheck wrote to the pull request"; failures=$((failures + 1)); fi
+check "review event: stored changes stay failing" 1 recheck FAKE_STORED="$HEAD_SHA changes $FP $BASE_SHA"
+check "review event: stored clean stays passing" 0 recheck FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: a stored skip stays failing" 1 recheck FAKE_STORED="$HEAD_SHA skipped $FP $BASE_SHA"
+check "review event: no stored result for the head does not pass" 1 recheck FAKE_STORED="cccccccccccccccccccccccccccccccccccccccc human $FP $BASE_SHA"
+check "review event: a comment of an older version (no stored head) does not pass" 1 recheck FAKE_STORED=""
+check "review event: an older head never turns green" 1 recheck FAKE_HEAD=cccccccccccccccccccccccccccccccccccccccc FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: a moved base does not pass on the old result" 1 recheck FAKE_BASE=dddddddddddddddddddddddddddddddddddddddd FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: a stored result that names no base does not pass" 1 recheck FAKE_STORED="$HEAD_SHA clean $FP none"
+check "review event: a changed description does not pass on the old result" 1 recheck FAKE_BODY="edited" FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: a pre-check of the head still going is waited for and then decides" 1 recheck FAKE_RUNNING=1 FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+[ "$(grep -c "actions/runs?head_sha=" "$FAKE_LOG")" = 2 ] || { echo "FAIL recheck did not wait"; failures=$((failures + 1)); }
+check "review event: the runs cannot be read" 1 recheck FAKE_FAIL="actions/runs" FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+check "review event: an unknown caller workflow" 1 recheck CALLER_REF="" FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA"
+# The approval itself is read by review/approval.py through gh; a Windows
+# Python does not run the fake gh, so these run on the Linux runner only.
+if [ "$(uname -s | cut -c1-5)" != MINGW ]; then
+  approved="[{\"user\": {\"login\": \"maintainer\", \"type\": \"User\"}, \"state\": \"APPROVED\", \"commit_id\": \"$HEAD_SHA\"}]"
+  check "review event: an approval of the head by a writer lets a stored human result pass" 0 recheck FAKE_GATE="" FAKE_REVIEWS="$approved" FAKE_STORED="$HEAD_SHA human $FP $BASE_SHA"
+  old="[{\"user\": {\"login\": \"maintainer\", \"type\": \"User\"}, \"state\": \"APPROVED\", \"commit_id\": \"$BASE_SHA\"}]"
+  check "review event: an approval of an older head does not" 1 recheck FAKE_GATE="" FAKE_REVIEWS="$old" FAKE_STORED="$HEAD_SHA human $FP $BASE_SHA"
+  mk_result '[]'
+  check "a new result that needs a person passes with an approval of the head" 0 env FAKE_GATE="" FAKE_REVIEWS="$approved" bash -c "RESULT_FILE='$T/result.json' SCOPE_FILE='$T/scope.json' COVERAGE=partial bash '$HERE/report.sh' report"
+  posted_has "The check passes: a person who can write to the repository approved this commit" || { echo "FAIL approved comment"; failures=$((failures + 1)); }
+fi
+check "publish: a review event dispatches to recheck" 0 env GATE=success VERDICT=review ANALYSE=skipped FAKE_STORED="$HEAD_SHA clean $FP $BASE_SHA" bash "$HERE/report.sh" publish
 
 # The review job's dispatch (report.sh publish) for every way the gate and the
 # analysis can end.
