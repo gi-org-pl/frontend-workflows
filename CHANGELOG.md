@@ -3,6 +3,12 @@
 All notable changes to the workflows of this repository. Versions follow [the versioning
 policy](docs/INDEX.md#versioning).
 
+## Unreleased
+
+Patch.
+
+- Issue references: a blank quoted line ends a paragraph, so backticks do not pair across it.
+
 ## 2.0.0 - 2026-10-22
 
 - **"Needs a person" passes the check.** The outcome `human` now ends `frontend-pre-check / review` with success, a

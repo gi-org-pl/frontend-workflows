@@ -123,6 +123,7 @@ def without_code(text):
                 continue
             fence = None  # a container of the block ended; this line is read as usual
         del stack[matched:]
+        listed = False  # a list marker opened on this line
         while rest.strip():
             match = QUOTE_MARKER.match(rest)
             if match:
@@ -132,7 +133,14 @@ def without_code(text):
                 if not match:
                     break
                 stack.append(match.end())
+                listed = True
             rest = rest[match.end():]
+        if not rest.strip() and not listed:
+            # Nothing but quote markers (or indentation): a blank line of its
+            # container, which ends the paragraph (a code span never crosses one).
+            # An empty list marker is not blank: it cannot interrupt a paragraph.
+            kept.append("")
+            continue
         match = FENCE.match(rest)
         if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
             fence = (match.group(1)[0], len(match.group(1)), len(stack))

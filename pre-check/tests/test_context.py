@@ -308,6 +308,29 @@ class DocumentsTest(unittest.TestCase):
         body = "See \\`issue #123\\`. A span `a\\` then #124 and `#1`."
         self.assertEqual(documents.issue_refs(body, [], "gi-org-pl/app"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
 
+    def test_a_blank_quoted_line_ends_the_paragraph(self):
+        refs = lambda body: documents.issue_refs(body, [], "gi-org-pl/app")
+        # The backticks cannot pair across the quoted blank line: they are text.
+        self.assertEqual(refs("> `See #123\n>\n> continued`"), ["gi-org-pl/app#123"])
+        # Nested quotes, with and without spaces between the markers.
+        self.assertEqual(refs("> > `See #123\n> >\n> > continued`"), ["gi-org-pl/app#123"])
+        self.assertEqual(refs("> > `See #123\n>>\n> > continued`"), ["gi-org-pl/app#123"])
+        self.assertEqual(refs("> > `See #123\n> \n> > continued`"), ["gi-org-pl/app#123"])
+        # A real span inside one quoted paragraph is still code.
+        self.assertEqual(refs("> `see #123\n> continued` and #124"), ["gi-org-pl/app#124"])
+        self.assertEqual(refs("> > `see #123\n> > continued` and #124"), ["gi-org-pl/app#124"])
+        # A marker indented by four spaces is not a quote: the line is text of the paragraph.
+        self.assertEqual(refs("`See #123\n    >\ncontinued` and #124"), ["gi-org-pl/app#124"])
+        self.assertEqual(refs("`See #123\n   >\ncontinued` and #124"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+        # Inside a list item whose content is indented by four columns.
+        self.assertEqual(refs("10. > `See #123\n    >\n    > continued` and #124"), ["gi-org-pl/app#123", "gi-org-pl/app#124"])
+        self.assertEqual(refs("10. > `see #123\n    > continued` and #124"), ["gi-org-pl/app#124"])
+        # An empty list marker cannot interrupt a paragraph: the span stays intact.
+        self.assertEqual(refs("`See #123\n2.\ncontinued` and #124"), ["gi-org-pl/app#124"])
+        self.assertEqual(refs("`See #123\n-\ncontinued` and #124"), ["gi-org-pl/app#124"])
+        # Fenced blocks are still code.
+        self.assertEqual(refs("> ~~~\n> #125\n>\n> ~~~\nSee #126."), ["gi-org-pl/app#126"])
+
     def test_many_references_stay_linear(self):
         import time
         start = time.monotonic()
