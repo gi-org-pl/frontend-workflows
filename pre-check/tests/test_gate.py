@@ -88,6 +88,14 @@ class InputTest(unittest.TestCase):
                 gate.check_inputs(env(**extra))
 
 
+class ReviewEventTest(unittest.TestCase):
+    def test_a_review_event_only_derives_the_check_again(self):
+        # No secret, no API call, whoever reviewed and whatever the pull request.
+        verdict, _ = gate.decide(FakeGitHub({}), env(EVENT="pull_request_review", HAS_TOKEN="false",
+                                                     HEAD_REPO="someone/fork", ACTOR="dependabot[bot]"))
+        self.assertEqual(verdict, "review")
+
+
 class FingerprintTest(unittest.TestCase):
     def test_the_gate_records_the_pull_request_it_saw(self):
         gh = FakeGitHub({"repos/gi-org-pl/app/pulls/7": {"body": "b", "draft": False, "title": "t"}})

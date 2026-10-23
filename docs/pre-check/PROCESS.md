@@ -48,23 +48,29 @@ There is one set of outcome states, defined once in
 | `advisory` | only non-blocking findings, or none while some linked context was not read in full (below); the change itself was fully covered | `pre-check: advisory` | success (exit 0) |
 | `queued` | a `merge_group` entry whose pull requests passed this check on their current heads | none | success (exit 0) |
 | `changes` | at least one blocking finding, anywhere in the reviewer's list | `pre-check: changes` | failure (exit 1) |
-| `human` | a rule says a person must judge it (list below), or the reviewer's output looked like it contained a credential and was withheld | `pre-check: human review` | success (exit 0) with a warning annotation "Needs a person's review: …" where a ruleset requires an approval of the current head; failure (exit 1) elsewhere |
+| `human` | a rule says a person must judge it (list below), or the reviewer's output looked like it contained a credential and was withheld | `pre-check: human review` | success (exit 0) with a warning annotation "Needs a person's review: …" where a ruleset requires an approval of the current head or a person who can write to the repository approved it; failure (exit 1) otherwise |
 | `invalid` | no valid result: the reviewer failed or returned a malformed result, the scope broke its schema, an exclusion is outside the policy, or a file name contains a control character or a backtick | none | failure (exit 1) |
 | `skipped` | not pre-checked: a fork, a draft, a bot, an actor without write access, no secret, or the hourly run limit | none | failure (exit 1) |
 | `unqueued` | a `merge_group` entry with a pull request that has no passing check on its head, or whose members cannot be established | none | failure (exit 1) |
 
-**"Needs a person" passes the check; the person's approval is the gate.** A pull request the pre-check cannot judge
-is not wrong, so the check does not turn red: it succeeds with a warning annotation, the `pre-check: human review`
-label and the heading "⚠️ needs a person (…)". What keeps it from merging unreviewed is the approval by a person that
-the repository requires (see [Approval](#approval)), and it has to be an approval **of the current head**: an approval
-of an earlier commit must not carry a later push that changes CI or dependencies. So the run passes "needs a person"
-only when a ruleset on the base branch requires at least one approval and either dismisses stale approvals on push or
-requires approval of the most recent push. It reads that from the rulesets of the branch (readable with the workflow
-token; classic branch protection is not, and does not count); without such a rule, or when the rules cannot be read,
-"needs a person" fails as before. A separate neutral check run (`frontend-pre-check / outcome`) would show the state
-among the checks, but publishing it needs `checks: write` in every caller: a new required permission, so a major
-release, for a signal the label, the annotation and the comment already give. "Changes needed" and a run that did not
-finish still fail. A pull request that was not pre-checked (fork, draft, bot, no secret, run limit) still fails too,
+**"Needs a person" passes the check; the person's approval is the gate.** A pull request the pre-check cannot judge is
+not wrong, so the check does not turn red: it succeeds with a warning annotation, the `pre-check: human review` label
+and the heading "⚠️ needs a person (…)". What keeps it from merging unreviewed is the approval by a person that the
+repository requires (see [Approval](#approval)), and it has to be an approval **of the current head**: an approval of an
+earlier commit must not carry a later push that changes CI or dependencies. So the run passes "needs a person" when
+either holds: a ruleset on the base branch requires at least one approval and either dismisses stale approvals on push
+or requires approval of the most recent push (read from the rulesets of the branch, which the workflow token can read;
+classic branch protection cannot be read and does not count) - or the current head **has** such an approval: an
+`APPROVED` review whose commit is the head, by a person who can write to the repository (write, maintain or admin by the
+collaborator permission API; where that API cannot be read, the author association owner, member or collaborator), who
+is not the author and not a bot, and whose later reviews did not request changes or get dismissed. The second covers
+pull requests into a branch without such a ruleset, such as a stacked pull request. Otherwise "needs a person" fails. A
+review does not start a new pre-check: with `pull_request_review` among the caller's events, a review event derives the
+check of the head again from the stored result (see [Reviews](#reviews-re-derive-the-check)); without it, the check
+changes with the next push or description edit. A separate neutral check run (`frontend-pre-check / outcome`) would show
+the state among the checks, but publishing it needs `checks: write` in every caller: a new required permission, so a
+major release, for a signal the label, the annotation and the comment already give. "Changes needed" and a run that did
+not finish still fail. A pull request that was not pre-checked (fork, draft, bot, no secret, run limit) still fails too,
 as the security review required that a skip never passes; whether it should pass like "needs a person" is an open
 question for the owner.
 
@@ -367,6 +373,9 @@ name: frontend-pre-check
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, edited]
+  # Optional (v2.1.0): a review re-derives the check of the head, without a new review.
+  pull_request_review:
+    types: [submitted, dismissed, edited]
   merge_group:
 
 permissions: {}
@@ -394,9 +403,31 @@ jobs:
   comparison - or the pull request gets a new base branch; edits of the title alone start nothing. A run skipped by
   this `if` creates no `frontend-pre-check / review` check, so it cannot replace the last result.
 - **`converted_to_draft`** withdraws the result when a pull request goes back to draft.
+- **`pull_request_review`** (optional) turns a "needs a person" check green when a person approves the head, and back
+  when the approval is withdrawn, without a new review (see [Reviews](#reviews-re-derive-the-check)). Without it, the
+  check changes with the next push or description edit.
 - **`merge_group`** lets the check pass for queue entries whose pull requests passed.
 - **`actions: read`** lets the gate count the runs of the last hour; **`checks: read`** lets the review job read the
   pull requests' check runs for a merge queue entry.
+
+## Reviews re-derive the check
+
+With `pull_request_review` (submitted, dismissed, edited) among the caller's events, a review changes the
+`frontend-pre-check / review` check of the head without a new review by the model:
+
+- The gate answers `review`; nothing is analysed and no secret is used, so the path works for any pull request, and a
+  fork's read-only token is enough.
+- The review job reads the outcome the Pre-check comment stores for the head: its hidden state line, written by the
+  workflow as `github-actions[bot]`, names the head commit, the outcome and the fingerprint of the description and
+  draft state. Nothing from the review body is read.
+- It passes only when the event is for the current head of the pull request, the stored result is for that head and
+  the description and draft state are unchanged since. A stored "needs a person" passes as described above, now with
+  the approvals as they are; a stored outcome otherwise keeps its result ("changes needed" stays red).
+- With no stored result for the head - the pre-check of a push is still going, or the comment comes from an older
+  version - it waits for a pre-check run of the head that is still going, then judges; with none, the run fails and
+  the next pre-check sets the check. An event of an older head never passes, so it cannot make any head green.
+- It writes nothing to the pull request, and review events have their own concurrency groups: they never cancel the
+  gate of a push or replace a publisher that waits, and a newer review event cancels an older one.
 
 ## Approval
 

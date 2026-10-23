@@ -191,7 +191,11 @@ class CompactCommentTest(unittest.TestCase):
         sc["human_paths"] = [{"path": ".github/workflows/ci.yml", "reason": "CI workflow"}]
         comment, _ = typical_comment(sc=sc)
         self.assertIn("## Pre-check: ⚠️ needs a person (it changes CI workflows) · 3 minor findings", comment)
-        self.assertIn("The check fails: the base branch does not require an approval of the current head", comment)
+        self.assertIn("The check fails until a person who can write to the repository, other than the author, "
+                      "approves this commit", comment)
+        with mock.patch.dict(os.environ, {"APPROVAL_GATE": "approved"}):
+            comment, _ = typical_comment(sc=sc)
+        self.assertIn("The check passes: a person who can write to the repository approved this commit", comment)
         with mock.patch.dict(os.environ, {"APPROVAL_GATE": "current-head"}):
             comment, _ = typical_comment(sc=sc)
         self.assertIn("The check passes: a person's review and approval of this commit is the gate", comment)

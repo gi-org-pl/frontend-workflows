@@ -206,12 +206,19 @@ def headline(evaluation):
 
 def human_status():
     """What "needs a person" means for the check here: report.sh has read the
-    rules of the base branch before rendering (APPROVAL_GATE)."""
-    if os.environ.get("APPROVAL_GATE") == "current-head":
+    rules of the base branch and the approvals before rendering
+    (APPROVAL_GATE). The text also holds after a later approval, which turns
+    the check green without a new comment."""
+    gate = os.environ.get("APPROVAL_GATE")
+    if gate == "current-head":
         return ("The check passes: a person's review and approval of this commit is the gate, as the base branch "
                 "requires. This is not an approval.")
-    return ("The check fails: the base branch does not require an approval of the current head, so a person's "
-            "approval cannot be the gate here (see the pre-check process, Approval).")
+    if gate == "approved":
+        return ("The check passes: a person who can write to the repository approved this commit. The pre-check "
+                "itself does not approve.")
+    return ("The check fails until a person who can write to the repository, other than the author, approves this "
+            "commit; the approval turns it green. The base branch does not require such an approval itself (see "
+            "the pre-check process, Approval).")
 
 
 def status_lines(evaluation):
