@@ -90,9 +90,9 @@ there: a check that needs one gets a named secret input in a new version of thes
 | `plan` | checks `shards` and `timeout_minutes` and lists the shards |
 | `e2e`, or `e2e 1/3`, `e2e 2/3`, ... with shards | sets up the repository like `frontend-ci`, runs `build_script` if set, installs the Playwright browsers, starts the app with `start_script` if set, runs `e2e_script` (with `--shard=i/n` when sharded) and, when the run fails, uploads `playwright-report/` and `test-results/` as the artifact `playwright-report` (`playwright-report-<i>` per shard) |
 
-The browsers are cached by the installed `playwright-core` version, `browsers` and `only_shell`. On a cache hit only
-their system dependencies are installed (`playwright install-deps`); on a miss, the browsers with them
-(`playwright install --with-deps`).
+The browsers are cached by the installed Playwright version (of `@playwright/test`, else `playwright` or
+`playwright-core`), `browsers` and `only_shell`. On a cache hit only their system dependencies are installed
+(`playwright install-deps`); on a miss, the browsers with them (`playwright install --with-deps`).
 
 The app under test is served either by the Playwright configuration (`webServer`, the usual way) or by
 `start_script`, which runs in the background until the address in `start_url` answers (two minutes at most).

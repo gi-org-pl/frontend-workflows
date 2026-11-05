@@ -17,8 +17,8 @@
 #                          its arguments, e.g. "storybook:build --quiet"
 #   ci.sh plan             SHARDS (1-8) TIMEOUT (1-40, the test step of
 #                          frontend-e2e); prints shards=[1,...] for $GITHUB_OUTPUT
-#   ci.sh playwright       prints version=<playwright-core version> for
-#                          $GITHUB_OUTPUT, read from the installed package
+#   ci.sh playwright       prints version=<Playwright version> for
+#                          $GITHUB_OUTPUT, read from the installed packages
 #   ci.sh browsers         BROWSERS ONLY_SHELL CACHE_HIT; installs the
 #                          browsers and their system dependencies, or only the
 #                          dependencies when the browsers came from the cache
@@ -147,10 +147,18 @@ cmd_plan() {
   echo "shards=[$list]"
 }
 
+# The packages are released together, so the first one the project can
+# resolve names the browser builds. @playwright/test comes first: with pnpm's
+# isolated layout only the declared packages resolve from the project.
 cmd_playwright() {
   local version
-  version=$(node -p "require('playwright-core/package.json').version" 2> /dev/null) ||
-    die "playwright-core is not installed; add @playwright/test to the devDependencies"
+  version=$(node -e '
+    for (const name of ["@playwright/test", "playwright", "playwright-core"]) {
+      try { console.log(require(name + "/package.json").version); process.exit(0); } catch {}
+    }
+    process.exit(1);
+  ' 2> /dev/null) ||
+    die "Playwright is not installed; add @playwright/test to the devDependencies"
   echo "version=$version"
 }
 

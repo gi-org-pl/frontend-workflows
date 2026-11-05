@@ -12,9 +12,9 @@ Minor: two new workflows; callers of `frontend-pre-check.yml` change nothing.
   runs when its `package.json` script input is set. The coverage comment runs in a job of its own with
   `pull-requests: write` and no code of the pull request; every other job has `contents: read` only. Callers grant
   `contents: read` and `pull-requests: write`; no secret. Their checks are named `<caller job> / lint` and so on.
-- **`frontend-e2e.yml`**: the Playwright suite - browsers cached by Playwright version, optional shards (1-8), the
-  app served by the Playwright configuration or by `start_script`, time limits on the steps, and the report and test
-  results uploaded when a run fails. Callers grant `contents: read`; no secret.
+- **`frontend-e2e.yml`**: the Playwright suite - browsers cached by the installed Playwright version, optional
+  shards (1-8), the app served by the Playwright configuration or by `start_script`, time limits on the steps, and
+  the report and test results uploaded when a run fails. Callers grant `contents: read`; no secret.
 - Both take Yarn, npm or pnpm, a Node version, a working directory, extra install arguments and plain `NAME=value`
   environment lines as inputs. The setup action and `frontend-ci/ci.sh` come from the commit of the workflow file;
   `ci.sh` checks every input and runs the package manager without a shell evaluating any input. Usage per repository:
