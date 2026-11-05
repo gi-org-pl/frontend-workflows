@@ -17,9 +17,9 @@
 #                          its arguments, e.g. "storybook:build --quiet"
 #   ci.sh plan             SHARDS (1-8) TIMEOUT (1-40, the test step of
 #                          frontend-e2e); prints shards=[1,...] for $GITHUB_OUTPUT
-#   ci.sh playwright       prints version=<Playwright version> for
+#   ci.sh playwright       PACKAGE_MANAGER; prints version=<Playwright version> for
 #                          $GITHUB_OUTPUT, read from the installed packages
-#   ci.sh browsers         BROWSERS ONLY_SHELL CACHE_HIT; installs the
+#   ci.sh browsers         PACKAGE_MANAGER BROWSERS ONLY_SHELL CACHE_HIT; installs the
 #                          browsers and their system dependencies, or only the
 #                          dependencies when the browsers came from the cache
 #   ci.sh serve <script words> <url>
@@ -94,15 +94,33 @@ cmd_env() {
   done <<< "${ENV_VARS:-}"
 }
 
+# Yarn 2 and later (Berry) may use Plug'n'Play: no node_modules, and a
+# package resolves only inside Yarn's own Node environment.
+yarn_berry() {
+  local version
+  version=$(yarn --version)
+  [ "${version%%.*}" -ge 2 ]
+}
+
+# Runs Node, or a binary of the project, where the project's packages resolve.
+pm_node() {
+  if [ "$(package_manager)" = yarn ] && yarn_berry; then yarn node "$@"; else node "$@"; fi
+}
+pm_exec() {
+  case "$(package_manager)" in
+    yarn) if yarn_berry; then yarn run "$@"; else npx --no -- "$@"; fi ;;
+    pnpm) pnpm exec "$@" ;;
+    npm) npx --no -- "$@" ;;
+  esac
+}
+
 cmd_install() {
-  local pm major
+  local pm
   pm=$(package_manager)
   split_words "${INSTALL_ARGS:-}"
   case "$pm" in
     yarn)
-      major=$(yarn --version)
-      major="${major%%.*}"
-      if [ "$major" -ge 2 ]; then
+      if yarn_berry; then
         yarn install --immutable "${WORDS[@]}"
       else
         yarn install --frozen-lockfile "${WORDS[@]}"
@@ -152,7 +170,7 @@ cmd_plan() {
 # isolated layout only the declared packages resolve from the project.
 cmd_playwright() {
   local version
-  version=$(node -e '
+  version=$(pm_node -e '
     for (const name of ["@playwright/test", "playwright", "playwright-core"]) {
       try { console.log(require(name + "/package.json").version); process.exit(0); } catch {}
     }
@@ -166,11 +184,11 @@ cmd_browsers() {
   split_words "${BROWSERS:-}"
   local browsers=("${WORDS[@]}") flags=()
   if [ "${CACHE_HIT:-false}" = "true" ]; then
-    npx --no -- playwright install-deps "${browsers[@]}"
+    pm_exec playwright install-deps "${browsers[@]}"
     return
   fi
   [ "${ONLY_SHELL:-false}" = "true" ] && flags+=(--only-shell)
-  npx --no -- playwright install --with-deps "${flags[@]}" "${browsers[@]}"
+  pm_exec playwright install --with-deps "${flags[@]}" "${browsers[@]}"
 }
 
 cmd_serve() {

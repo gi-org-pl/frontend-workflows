@@ -92,7 +92,9 @@ there: a check that needs one gets a named secret input in a new version of thes
 
 The browsers are cached by the installed Playwright version (of `@playwright/test`, else `playwright` or
 `playwright-core`), `browsers` and `only_shell`. On a cache hit only their system dependencies are installed
-(`playwright install-deps`); on a miss, the browsers with them (`playwright install --with-deps`).
+(`playwright install-deps`); on a miss, the browsers with them (`playwright install --with-deps`). Playwright runs
+where the project's packages resolve: `yarn node` and `yarn run playwright` with Yarn 2 and later (Plug'n'Play has
+no `node_modules`), `pnpm exec` with pnpm, `npx --no` otherwise.
 
 The app under test is served either by the Playwright configuration (`webServer`, the usual way) or by
 `start_script`, which runs in the background until the address in `start_url` answers (two minutes at most).

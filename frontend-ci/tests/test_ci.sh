@@ -12,6 +12,10 @@ for tool in yarn npm pnpm npx; do
   cat > "$T/bin/$tool" << 'EOF'
 #!/usr/bin/env bash
 if [ "$(basename "$0")" = yarn ] && [ "${1:-}" = --version ]; then echo "${FAKE_YARN_VERSION:-1.22.22}"; exit 0; fi
+if [ "$(basename "$0")" = yarn ] && [ "${1:-}" = node ]; then
+  [ -n "${FAKE_PLAYWRIGHT_PNP:-}" ] && { echo "$FAKE_PLAYWRIGHT_PNP"; exit 0; }
+  exit 1
+fi
 echo "$(basename "$0") $*" >> "$FAKE_LOG"
 EOF
   chmod +x "$T/bin/$tool"
@@ -94,15 +98,24 @@ check "plan refuses a timeout over 40" 1 "" env SHARDS=1 TIMEOUT=41 "$CI_SH" pla
 check "plan refuses a timeout of 0" 1 "" env SHARDS=1 TIMEOUT=0 "$CI_SH" plan
 
 # Playwright
-check "playwright version" 0 "version=1.64.1" env FAKE_PLAYWRIGHT=1.64.1 "$CI_SH" playwright
-check "playwright not installed" 1 "" "$CI_SH" playwright
+check "playwright version" 0 "version=1.64.1" env PACKAGE_MANAGER=yarn FAKE_PLAYWRIGHT=1.64.1 "$CI_SH" playwright
+check "playwright not installed" 1 "" env PACKAGE_MANAGER=npm "$CI_SH" playwright
+# Plug'n'Play: the version is read in Yarn's Node environment, not by plain node.
+check "playwright version, Yarn Berry" 0 "version=1.64.1" \
+  env PACKAGE_MANAGER=yarn FAKE_YARN_VERSION=4.5.0 FAKE_PLAYWRIGHT_PNP=1.64.1 "$CI_SH" playwright
+check "playwright not resolvable by plain node under Berry" 1 "" \
+  env PACKAGE_MANAGER=yarn FAKE_YARN_VERSION=4.5.0 FAKE_PLAYWRIGHT=1.64.1 "$CI_SH" playwright
 check "browsers on a cache miss" 0 "npx --no -- playwright install --with-deps --only-shell" \
-  env ONLY_SHELL=true CACHE_HIT= "$CI_SH" browsers
+  env PACKAGE_MANAGER=yarn ONLY_SHELL=true CACHE_HIT= "$CI_SH" browsers
 check "browsers on a cache hit" 0 "npx --no -- playwright install-deps chromium firefox" \
-  env BROWSERS="chromium firefox" ONLY_SHELL=true CACHE_HIT=true "$CI_SH" browsers
+  env PACKAGE_MANAGER=npm BROWSERS="chromium firefox" ONLY_SHELL=true CACHE_HIT=true "$CI_SH" browsers
 check "browsers, full Chromium" 0 "npx --no -- playwright install --with-deps chromium webkit" \
-  env BROWSERS="chromium webkit" ONLY_SHELL=false "$CI_SH" browsers
-check "browsers refuse shell syntax" 1 "" env BROWSERS='chromium;id' "$CI_SH" browsers
+  env PACKAGE_MANAGER=yarn BROWSERS="chromium webkit" ONLY_SHELL=false "$CI_SH" browsers
+check "browsers, Yarn Berry" 0 "yarn run playwright install --with-deps --only-shell chromium" \
+  env PACKAGE_MANAGER=yarn FAKE_YARN_VERSION=4.5.0 BROWSERS=chromium ONLY_SHELL=true "$CI_SH" browsers
+check "browsers, pnpm" 0 "pnpm exec playwright install-deps" \
+  env PACKAGE_MANAGER=pnpm CACHE_HIT=true "$CI_SH" browsers
+check "browsers refuse shell syntax" 1 "" env PACKAGE_MANAGER=yarn BROWSERS='chromium;id' "$CI_SH" browsers
 
 # serve: refuses a bad address before starting anything
 check "serve refuses a non-http address" 1 "" env PACKAGE_MANAGER=yarn "$CI_SH" serve preview 'file:///etc/passwd'
