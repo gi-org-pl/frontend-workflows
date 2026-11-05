@@ -3,7 +3,7 @@
 All notable changes to the workflows of this repository. Versions follow [the versioning
 policy](docs/INDEX.md#versioning).
 
-## Unreleased
+## 2.2.0 - 2026-11-05
 
 Minor: two new workflows; callers of `frontend-pre-check.yml` change nothing.
 
