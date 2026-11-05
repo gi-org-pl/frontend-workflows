@@ -1,11 +1,14 @@
 # Workflows
 
-Reusable workflows of this repository. Each one has its own directory of scripts and tests at the top level, its
-workflow file in `.github/workflows/` (GitHub allows no subfolders there) and its documentation in `docs/`.
+Reusable workflows of this repository. Each one has its own directory of scripts and tests at the top level
+(`frontend-ci/` serves both `frontend-ci.yml` and `frontend-e2e.yml`), its workflow file in `.github/workflows/`
+(GitHub allows no subfolders there) and its documentation in `docs/`.
 
 | Workflow | What it does | Docs |
 | --- | --- | --- |
 | [`frontend-pre-check.yml`](../.github/workflows/frontend-pre-check.yml) | The AI pre-check of a front-end pull request: an isolated reviewer, a deterministic coverage policy, one Pre-check comment and the check `frontend-pre-check / review` | [Process](pre-check/PROCESS.md), [reviewer instructions](pre-check/REVIEWER.md) |
+| [`frontend-ci.yml`](../.github/workflows/frontend-ci.yml) | Lint, typecheck, unit tests with a coverage comment, the build and the Storybook build, each a job of its own; no deployment | [frontend-ci and frontend-e2e](ci/CI.md) |
+| [`frontend-e2e.yml`](../.github/workflows/frontend-e2e.yml) | The Playwright suite with cached browsers, optional shards and the report of a failed run; no deployment | [frontend-ci and frontend-e2e](ci/CI.md) |
 
 ## Calling a workflow
 

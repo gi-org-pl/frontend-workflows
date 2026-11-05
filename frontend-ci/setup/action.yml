@@ -1,0 +1,68 @@
+name: frontend-ci setup
+description: >-
+  Node, the package manager with its download cache, the environment and the
+  dependencies of a frontend-ci or frontend-e2e job. Used only by the
+  workflows of this repository, from a checkout of their own commit.
+
+inputs:
+  node-version:
+    description: "Node version for actions/setup-node"
+    required: true
+  package-manager:
+    description: "yarn, npm or pnpm"
+    required: true
+  working-directory:
+    description: "Directory of package.json and the lockfile, relative to the repository"
+    required: true
+  install-args:
+    description: "Extra arguments of the install command"
+    required: false
+    default: ""
+  env-vars:
+    description: "Newline-separated NAME=value lines set in the environment of the job"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Check the inputs
+      id: check
+      shell: bash
+      env:
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      run: |
+        "$GITHUB_ACTION_PATH/../ci.sh" check >> "$GITHUB_OUTPUT"
+        # The later steps of the job run ci.sh with the same package manager.
+        {
+          echo "FRONTEND_CI=$(cd "$GITHUB_ACTION_PATH/.." && pwd)/ci.sh"
+          echo "PACKAGE_MANAGER=$PACKAGE_MANAGER"
+        } >> "$GITHUB_ENV"
+
+    - name: Set the environment
+      if: inputs.env-vars != ''
+      shell: bash
+      env:
+        ENV_VARS: ${{ inputs.env-vars }}
+      run: '"$FRONTEND_CI" env >> "$GITHUB_ENV"'
+
+    # Yarn and pnpm come from Corepack, at the version package.json names.
+    - name: Enable Corepack
+      if: inputs.package-manager != 'npm'
+      shell: bash
+      run: corepack enable
+
+    - name: Set up Node
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ${{ inputs.package-manager }}
+        cache-dependency-path: ${{ steps.check.outputs.lockfile }}
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INSTALL_ARGS: ${{ inputs.install-args }}
+      run: '"$FRONTEND_CI" install'
