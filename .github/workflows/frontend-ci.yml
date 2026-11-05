@@ -1,0 +1,343 @@
+name: frontend-ci
+
+# Reusable checks of a front-end repository: lint, typecheck, unit tests with
+# a coverage comment, the build and the Storybook build. No deployment: a
+# caller publishes from its own workflows. Usage per repository and the
+# inputs: docs/ci/CI.md.
+#
+# This file only orchestrates: jobs, permissions and which command runs where.
+# Every job takes the setup action and ci.sh from frontend-ci/ at the commit
+# of this workflow file (job.workflow_sha); ci.sh checks every input and runs
+# the package manager without a shell evaluating any input:
+#   lint, typecheck, unit, build, storybook
+#           - the code of the pull request with a read-only token; a job runs
+#             when its script input is not empty
+#   coverage-comment
+#           - posts the coverage of the unit job on the pull request: a write
+#             token, no checkout and no code of the pull request
+#
+# Callers grant contents: read and, for the coverage comment,
+# pull-requests: write. No secret is needed.
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node version for actions/setup-node"
+        type: string
+        default: "24.x"
+      package_manager:
+        description: "yarn (1 or Berry, from Corepack), npm or pnpm (from Corepack)"
+        type: string
+        default: "yarn"
+      working_directory:
+        description: "Directory of package.json and the lockfile, relative to the repository"
+        type: string
+        default: "."
+      install_args:
+        description: "Extra arguments of the install command, e.g. --network-concurrency 1"
+        type: string
+        default: ""
+      env_vars:
+        description: "Newline-separated NAME=value lines set in every job; plain text, never a secret"
+        type: string
+        default: ""
+      lint_script:
+        description: "package.json script that lints, with its arguments; empty skips the job"
+        type: string
+        default: "lint"
+      typecheck_script:
+        description: "package.json script that type-checks; empty skips the job"
+        type: string
+        default: "typecheck"
+      unit_script:
+        description: "package.json script that runs the unit tests with coverage; empty skips the job"
+        type: string
+        default: "test:coverage"
+      coverage_directory:
+        description: "Coverage output of unit_script, relative to working_directory; uploaded as the artifact coverage"
+        type: string
+        default: "coverage"
+      coverage_comment_file:
+        description: "clover.xml or lcov.info in coverage_directory to comment on the pull request; empty: no comment"
+        type: string
+        default: "clover.xml"
+      build_script:
+        description: "package.json script that builds the app or the library; empty skips the job"
+        type: string
+        default: "build"
+      build_artifact_path:
+        description: "Build output relative to working_directory, uploaded as the artifact frontend-build; empty: no upload"
+        type: string
+        default: ""
+      storybook_script:
+        description: "package.json script that builds Storybook, e.g. storybook:build --quiet; empty skips the job"
+        type: string
+        default: ""
+      storybook_artifact_path:
+        description: "Storybook output relative to working_directory, uploaded as the artifact storybook-static"
+        type: string
+        default: "storybook-static"
+      artifact_retention_days:
+        description: "Days the artifacts are kept (1-90)"
+        type: number
+        default: 7
+      timeout_minutes:
+        description: "Timeout of every job, in minutes"
+        type: number
+        default: 15
+
+permissions: {}
+
+jobs:
+  lint:
+    name: lint
+    if: inputs.lint_script != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out the frontend-ci tools at the commit of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: frontend-ci
+          persist-credentials: false
+          path: .frontend-ci-tools
+
+      - name: Set up Node and the dependencies
+        uses: ./.frontend-ci-tools/frontend-ci/setup
+        with:
+          node-version: ${{ inputs.node_version }}
+          package-manager: ${{ inputs.package_manager }}
+          working-directory: ${{ inputs.working_directory }}
+          install-args: ${{ inputs.install_args }}
+          env-vars: ${{ inputs.env_vars }}
+
+      - name: Lint
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          SCRIPT: ${{ inputs.lint_script }}
+        run: '"$FRONTEND_CI" run "$SCRIPT"'
+
+  typecheck:
+    name: typecheck
+    if: inputs.typecheck_script != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out the frontend-ci tools at the commit of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: frontend-ci
+          persist-credentials: false
+          path: .frontend-ci-tools
+
+      - name: Set up Node and the dependencies
+        uses: ./.frontend-ci-tools/frontend-ci/setup
+        with:
+          node-version: ${{ inputs.node_version }}
+          package-manager: ${{ inputs.package_manager }}
+          working-directory: ${{ inputs.working_directory }}
+          install-args: ${{ inputs.install_args }}
+          env-vars: ${{ inputs.env_vars }}
+
+      - name: Typecheck
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          SCRIPT: ${{ inputs.typecheck_script }}
+        run: '"$FRONTEND_CI" run "$SCRIPT"'
+
+  unit:
+    name: unit
+    if: inputs.unit_script != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out the frontend-ci tools at the commit of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: frontend-ci
+          persist-credentials: false
+          path: .frontend-ci-tools
+
+      - name: Set up Node and the dependencies
+        uses: ./.frontend-ci-tools/frontend-ci/setup
+        with:
+          node-version: ${{ inputs.node_version }}
+          package-manager: ${{ inputs.package_manager }}
+          working-directory: ${{ inputs.working_directory }}
+          install-args: ${{ inputs.install_args }}
+          env-vars: ${{ inputs.env_vars }}
+
+      - name: Run the unit tests with coverage
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          SCRIPT: ${{ inputs.unit_script }}
+        run: '"$FRONTEND_CI" run "$SCRIPT"'
+
+      # Also when a coverage threshold failed the step: the report says where.
+      - name: Upload the coverage
+        if: ${{ !cancelled() && inputs.coverage_directory != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: ${{ inputs.working_directory }}/${{ inputs.coverage_directory }}/
+          if-no-files-found: ignore
+          retention-days: ${{ inputs.artifact_retention_days }}
+          # A re-run of the job replaces the artifact of the earlier attempt.
+          overwrite: true
+
+  # A separate job, so that the write token never meets the code of the pull
+  # request: it reads only the coverage file the unit job uploaded. A pull
+  # request from a fork, or from Dependabot, gets a read-only token, so it
+  # gets no comment.
+  coverage-comment:
+    name: coverage comment
+    needs: unit
+    if: >-
+      ${{
+        needs.unit.result == 'success' &&
+        inputs.coverage_directory != '' &&
+        inputs.coverage_comment_file != '' &&
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.actor != 'dependabot[bot]'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Take the coverage of the unit job
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage
+          path: coverage
+
+      - name: Comment the coverage on the pull request
+        uses: kcjpop/coverage-comments@ac79baad7d79ea4be568de114b38ffb8faeb1ef6 # v2.2
+        with:
+          github-token: ${{ github.token }}
+          coverage-file: coverage/${{ inputs.coverage_comment_file }}
+
+  build:
+    name: build
+    if: inputs.build_script != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out the frontend-ci tools at the commit of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: frontend-ci
+          persist-credentials: false
+          path: .frontend-ci-tools
+
+      - name: Set up Node and the dependencies
+        uses: ./.frontend-ci-tools/frontend-ci/setup
+        with:
+          node-version: ${{ inputs.node_version }}
+          package-manager: ${{ inputs.package_manager }}
+          working-directory: ${{ inputs.working_directory }}
+          install-args: ${{ inputs.install_args }}
+          env-vars: ${{ inputs.env_vars }}
+
+      - name: Build
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          SCRIPT: ${{ inputs.build_script }}
+        run: '"$FRONTEND_CI" run "$SCRIPT"'
+
+      - name: Upload the build
+        if: inputs.build_artifact_path != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-build
+          path: ${{ inputs.working_directory }}/${{ inputs.build_artifact_path }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          # A re-run of the job replaces the artifact of the earlier attempt.
+          overwrite: true
+
+  storybook:
+    name: storybook
+    if: inputs.storybook_script != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out the frontend-ci tools at the commit of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: frontend-ci
+          persist-credentials: false
+          path: .frontend-ci-tools
+
+      - name: Set up Node and the dependencies
+        uses: ./.frontend-ci-tools/frontend-ci/setup
+        with:
+          node-version: ${{ inputs.node_version }}
+          package-manager: ${{ inputs.package_manager }}
+          working-directory: ${{ inputs.working_directory }}
+          install-args: ${{ inputs.install_args }}
+          env-vars: ${{ inputs.env_vars }}
+
+      - name: Build Storybook
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          SCRIPT: ${{ inputs.storybook_script }}
+        run: '"$FRONTEND_CI" run "$SCRIPT"'
+
+      - name: Upload Storybook
+        if: inputs.storybook_artifact_path != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: storybook-static
+          path: ${{ inputs.working_directory }}/${{ inputs.storybook_artifact_path }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
+          # A re-run of the job replaces the artifact of the earlier attempt.
+          overwrite: true

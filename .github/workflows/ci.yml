@@ -64,7 +64,10 @@ jobs:
             [ -d "$tests" ] || continue
             found=1
             echo "::group::$tests"
-            python3 -m unittest discover -s "$tests" -v
+            # unittest fails a directory without Python tests (exit 5).
+            if compgen -G "$tests/test_*.py" > /dev/null; then
+              python3 -m unittest discover -s "$tests" -v
+            fi
             for script in "$tests"/test_*.sh; do
               if [ -f "$script" ]; then bash "$script"; fi
             done

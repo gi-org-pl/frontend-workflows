@@ -1,0 +1,207 @@
+name: frontend-e2e
+
+# Reusable end-to-end run of a front-end repository with Playwright: the
+# browsers cached by Playwright version, optional shards, and the report and
+# the test results uploaded when a run fails. No deployment. Usage per
+# repository and the inputs: docs/ci/CI.md.
+#
+# This file only orchestrates; the decisions live in frontend-ci/ci.sh, taken
+# from the commit of this workflow file (job.workflow_sha), like in
+# frontend-ci.yml:
+#   plan - checks the shards and the time limit and lists the shards; no
+#          checkout of the caller, no token
+#   e2e  - one job per shard: the code of the pull request with a read-only
+#          token. The app is served by the Playwright configuration
+#          (webServer), or by start_script before the tests.
+#
+# The time limits that count are on the steps: a step that runs out of time
+# fails, so the job ends as a failure and is reported like one. A job stopped
+# by its own limit is marked cancelled instead, so that limit is set above the
+# sum of the steps (10 + 15 + 10 + 5 + at most 40) and never ends a run.
+#
+# Callers grant contents: read. No secret is needed.
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node version for actions/setup-node"
+        type: string
+        default: "24.x"
+      package_manager:
+        description: "yarn (1 or Berry, from Corepack), npm or pnpm (from Corepack)"
+        type: string
+        default: "yarn"
+      working_directory:
+        description: "Directory of package.json, the lockfile and the Playwright configuration, relative to the repository"
+        type: string
+        default: "."
+      install_args:
+        description: "Extra arguments of the install command, e.g. --network-concurrency 1"
+        type: string
+        default: ""
+      env_vars:
+        description: "Newline-separated NAME=value lines set in the job; plain text, never a secret"
+        type: string
+        default: ""
+      build_script:
+        description: "package.json script run before the tests, e.g. build; empty: none (the Playwright configuration may build)"
+        type: string
+        default: ""
+      start_script:
+        description: "package.json script that serves the app in the background, e.g. preview; empty: the Playwright webServer serves it"
+        type: string
+        default: ""
+      start_url:
+        description: "Address that answers once start_script serves the app, e.g. http://localhost:4173"
+        type: string
+        default: ""
+      e2e_script:
+        description: "package.json script that runs Playwright, with its arguments, e.g. e2e --project=chromium"
+        type: string
+        default: "e2e"
+      browsers:
+        description: "Space-separated browsers to install (chromium firefox webkit); empty: Playwright's default set"
+        type: string
+        default: ""
+      only_shell:
+        description: "Install the headless shell of Chromium instead of the full browser (headless runs only)"
+        type: boolean
+        default: true
+      shards:
+        description: "Number of shards the suite is split into, each a job of its own (1-8)"
+        type: number
+        default: 1
+      timeout_minutes:
+        description: "Timeout of the test step, in minutes (1-40)"
+        type: number
+        default: 25
+      report_retention_days:
+        description: "Days the report of a failed run is kept (1-90)"
+        type: number
+        default: 7
+
+permissions: {}
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - name: Check out the frontend-ci tools at the commit of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: frontend-ci
+          persist-credentials: false
+          path: .frontend-ci-tools
+
+      - name: Plan the shards
+        id: plan
+        env:
+          SHARDS: ${{ inputs.shards }}
+          TIMEOUT: ${{ inputs.timeout_minutes }}
+        run: .frontend-ci-tools/frontend-ci/ci.sh plan >> "$GITHUB_OUTPUT"
+
+  e2e:
+    name: ${{ inputs.shards > 1 && format('e2e {0}/{1}', matrix.shard, inputs.shards) || 'e2e' }}
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      # Every shard runs to the end, so one failure does not hide the others.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out the frontend-ci tools at the commit of this workflow
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          sparse-checkout: frontend-ci
+          persist-credentials: false
+          path: .frontend-ci-tools
+
+      - name: Set up Node and the dependencies
+        timeout-minutes: 10
+        uses: ./.frontend-ci-tools/frontend-ci/setup
+        with:
+          node-version: ${{ inputs.node_version }}
+          package-manager: ${{ inputs.package_manager }}
+          working-directory: ${{ inputs.working_directory }}
+          install-args: ${{ inputs.install_args }}
+          env-vars: ${{ inputs.env_vars }}
+
+      - name: Build
+        if: inputs.build_script != ''
+        timeout-minutes: 15
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          SCRIPT: ${{ inputs.build_script }}
+        run: '"$FRONTEND_CI" run "$SCRIPT"'
+
+      - name: Read the Playwright version
+        id: playwright
+        working-directory: ${{ inputs.working_directory }}
+        run: '"$FRONTEND_CI" playwright >> "$GITHUB_OUTPUT"'
+
+      # Keyed by everything that decides which browser builds get installed.
+      - name: Restore the Playwright browsers
+        id: browsers-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ inputs.only_shell }}-${{ inputs.browsers }}
+
+      - name: Install the Playwright browsers
+        timeout-minutes: 10
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          BROWSERS: ${{ inputs.browsers }}
+          ONLY_SHELL: ${{ inputs.only_shell }}
+          CACHE_HIT: ${{ steps.browsers-cache.outputs.cache-hit }}
+        run: '"$FRONTEND_CI" browsers'
+
+      - name: Start the app
+        if: inputs.start_script != ''
+        timeout-minutes: 5
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          SCRIPT: ${{ inputs.start_script }}
+          URL: ${{ inputs.start_url }}
+        run: '"$FRONTEND_CI" serve "$SCRIPT" "$URL"'
+
+      - name: Run the Playwright tests
+        timeout-minutes: ${{ inputs.timeout_minutes }}
+        working-directory: ${{ inputs.working_directory }}
+        env:
+          SCRIPT: ${{ inputs.e2e_script }}
+          SHARD: ${{ inputs.shards > 1 && format('--shard={0}/{1}', matrix.shard, inputs.shards) || '' }}
+        run: '"$FRONTEND_CI" run "$SCRIPT" "$SHARD"'
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.shards > 1 && format('playwright-report-{0}', matrix.shard) || 'playwright-report' }}
+          path: |
+            ${{ inputs.working_directory }}/playwright-report/
+            ${{ inputs.working_directory }}/test-results/
+          if-no-files-found: ignore
+          retention-days: ${{ inputs.report_retention_days }}
+          # A re-run of the job replaces the report of the earlier attempt.
+          overwrite: true
